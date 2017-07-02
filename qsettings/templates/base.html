@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+{% load bootstrap3 %}
+
+<html{% if LANGUAGE_CODE %} lang="{{ LANGUAGE_CODE }}"{% endif %}>
+
+<head>
+    <meta charset="utf-8">
+    <!--[if IE]><meta http-equiv="X-UA-Compatible" content="IE=edge" /><![endif]-->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block bootstrap3_title %}django-bootstrap3 template title{% endblock %}</title>
+    {% bootstrap_css %}
+    {% if 'javascript_in_head'|bootstrap_setting %}{% bootstrap_javascript jquery=True %}{% endif %}
+    {% block bootstrap3_extra_head %}
+	
+	<!-- mainMenu CSS here -->
+	<style>
+	#navbar {
+	 text-decoration: underline;
+	 padding-top: 0.5%;
+	 width: 100%;
+	 text-align: center;
+	 overflow: hidden;
+	 }
+    #navbar li { 
+	 display: inline;
+	 font-size: 15px;
+	 overflow: hidden;
+	 text-align: center;
+	 font-family: Arial Unicode MS;
+	 }
+	#navbar li a {
+	 padding-left: 1%;
+	 padding-right: 1%;
+	 color: white;
+	 overflow: hidden;
+	 text-decoration: none;
+	 width: 20%;
+	 }
+	#navbar li a:hover {
+	 background-color: #4373a7;
+	 box-shadow:  inset 1px 1px 1px rgba(0,0,0,1);
+	 padding-top: 0.18%;
+	 padding-bottom: 0.3%;
+	 }
+	 .selected{
+	 background-color: #4373a7; 
+	 box-shadow:  inset 1px 1px 1px rgba(0,0,0,1);
+	 padding-top: 0.18%;
+	 padding-bottom: 0.3%;
+	 }
+	</style>
+	<!-- mainMenu CSS here  END -->
+	{% endblock %}
+</head>
+
+{% block bootstrap3_content %}
+<!-- mainMenu HTML here -->
+<body style="background-color: black;">
+
+<div class="container" style="width: 100%; align: center;">
+	<div style="background-color: #2e3a6b ; width: 100%; height: 1.5%; margin: 5px 0 6px 0;">
+		<ul id="navbar">
+			{% for item in mainMenu %}
+			<li><a href="{% url item.class %}"{% if item.class == thisClass %} class="selected"{% endif %}>{{ item.name }}</a></li>
+			{% endfor %}
+		</ul>
+	</div>
+</div>
+<!-- mainMenu HTML here END-->
+{% endblock %}
+{% if not 'javascript_in_head'|bootstrap_setting %}{% bootstrap_javascript jquery=True %}{% endif %}
+{% block bootstrap3_extra_script %}{% endblock %}
+</body>
+
+</html>

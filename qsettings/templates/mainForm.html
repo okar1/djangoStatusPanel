@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% load bootstrap3 %}
+
+
+
+
+<{% block bootstrap3_extra_head %}
+    {% autoescape off %} {{ autoRefresh }} {% endautoescape %}
+{% endblock %}>
+
+<{% block static %}
+{% endblock %}>
+
+{% block content %}
+<div class="container">
+        <h1> {{ headString }} </h1>
+
+        {% autoescape off %}{% bootstrap_messages %}{% endautoescape %}
+
+{% autoescape off %}{{ annotationString }}{% endautoescape %}
+<hr />
+</br>
+<a href="cvUpdate">Обновление виджетов ChannelView</a></br>
+<a href="rcaUpdate">Обновление правил RCA</a></br>
+<a href="gpolicyUpdate">Обновление групповых политик</a></br>
+<a href="vbUpdate">Обновление списка каналов для устройств VideoBridge </a></br>
+    <!--form role="form" class="form-horizontal" method="post">
+        {% csrf_token %}
+        {% bootstrap_form form layout="horizontal" %}
+        {% buttons layout='horizontal' %}
+            {% autoescape off %} {{ buttonLayout }} {% endautoescape %}
+        {% endbuttons %}
+    </form-->
+</div>
+{% endblock %}

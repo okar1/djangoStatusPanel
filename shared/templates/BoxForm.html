@@ -1,0 +1,206 @@
+{% extends 'base.html' %}
+{% load staticfiles %}
+{% load bootstrap3 %}
+
+{% block bootstrap3_title %}{{ headString }}{% endblock %}
+
+
+***** ниже блок для секции head. Этот текст не попадет в HTML *****
+
+{% block bootstrap3_extra_head %}
+{{ block.super }}
+
+	{% autoescape off %} {{ autoRefresh }} {% endautoescape %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script>
+var token='{{csrf_token}}'
+var timerDangerousTimeSec='{{timerDangerousTimeSec}}'
+</script>
+<script src="{% static "shared/jquery-ui.js" %}"></script>
+<script src="{% static "shared/boxFormController.js" %}"></script>
+<script src="{% static "shared/boxFormView.js" %}"></script>
+
+<!--link rel="stylesheet" href="{{STATIC_URL}}css/jquery-ui.css"-->
+<style>
+	#selectable .ui-selecting { background: #c2ffe0;}
+	#selectable .ui-selected { background: #5cffad; color: white;}
+	#selectable .ui-group { background: #c2ffe0;}
+	#selectable { list-style-type: none; margin: 0; padding: 0; width: 100%; }
+	#selectable li {z-index:80; cursor: pointer; margin: 0.2%; padding: 0px; float: left; width: 16.267%; height: 30px; font-size: 20px; text-align: center; border: 1px solid #c5c5c5; background: #f6f6f6;}
+	
+	 #grouplist {
+		width: 280px; 
+		margin: 12px 10px 1px 15px;
+	 }
+	 #recordlist {
+		width: 100%;
+		margin: 5px 1px;
+	 }
+	 .legend2nothing{
+	background: #4c4c4c; 
+	float:left; 
+	width: 15px; 
+	height: 15px;	
+	display: inline-block; 
+	border: 1px outset; 
+	margin-left: 25%; 
+	margin-top: 3px; 
+	margin-right: 3px;
+	}
+	.add{
+    background: #0D6338;
+	 }
+	.legend2add{
+    background: #0D6338;
+	width: 15px; height: 15px;
+    display: inline-block;
+	border: 1px outset;
+	 float:left;
+	margin-top: 3px;
+	margin-left: 5px;
+	margin-right: 3px;
+	 }
+	.rem{
+    background: #D94A4A;
+	 }
+	 .legend2remove{
+    background: #D94A4A;
+	width: 15px; height: 15px;
+    display: inline-block;
+	border: 1px outset;
+	margin-top: 3px;
+	margin-left: 5px;
+	margin-right: 3px;
+	 float:left;
+	 }
+	.brd {
+	margin-top: -4.25%; 
+	color: #ebedee;
+	align: center;
+	width: 100%;
+	font-family: tahoma;
+    background: #2e3a6b;
+	font-size: 90%;
+	display: flex;
+    flex-direction: row;
+	padding-top: 0.5%;
+	position: fixed;
+	bottom: 0.3%;
+	left: 0;
+	right: 0;
+	height: 3%;
+	z-index:10;
+	overflow: hidden;
+	padding-bottom: 2%;
+	}
+    .meter { 
+	height: 30px; 
+	background: #F6F6F6;
+	box-shadow: inset 0 -1px 1px rgba(255,255,255,0.3);
+	z-index:81;
+	 }
+	.meter > span {
+	display: block;
+	z-index: 82;
+	height: 100%;
+	background-color: #00c300;
+	background-image: linear-gradient(
+	 center bottom,
+	 rgb(43,194,83) 37%,
+	 rgb(84,240,84) 69%
+	 position: fixed;);	
+	box-shadow: 
+	inset 0 2px 9px  rgba(255,255,255,0.3),
+	inset 0 -2px 6px rgba(0,0,0,0.4);
+	position: static;
+	overflow: hidden;
+	 }
+	.text{
+	display: block;
+	position: absolute;
+	z-index: 99;
+	margin: 0px 10px;
+	 }
+	.clear {
+		clear: both;
+		width: 100%;
+		height: 25px;
+	}
+	.standartNotice {
+	position: absolute;
+	margin-top: 2px;
+	left: 2%;
+	margin-bottom: 2px;
+	padding: 10px 10px;
+	color: white;
+	font-family: tahoma;
+	font-size: 110%;
+	}
+	.dangerousNotice {
+	position: absolute;
+	margin-top: 4px;
+	margin-bottom: 2px;
+	left: 2%;
+	padding: 5px 10px;
+	color: white;
+	background-color: #D94A4A;
+	border: solid;
+	font-family: tahoma;
+	font-size: 110%;
+	}
+	.standartNotice > span {
+    display:inline-block;
+    max-width: 13%;
+    overflow:hidden;
+	}
+	.dangerousNotice > span {
+    display:inline-block;
+    max-width: 13%;
+    overflow:hidden;
+	}
+	</style>
+{% endblock %}>
+
+
+***** ниже блок для секции body. Этот текст не попадет в HTML *****
+
+{% block bootstrap3_content %}
+{{ block.super }}
+
+<div class="container" style="width: 100%; float: left;">
+	<div style="background-color: #2e3a6b; width: 100%;">
+	<!--h1 align="center" style="color: #ebedee;">{{ headString }}</h1-->
+</div>
+
+<div style="background-color: #4c4c4c; height:45px;  overflow: hidden; display: flex; flex-direction: row;">
+	<div style="padding: 5px 0 0 5px; position: absolute; right: 3.5%;">
+		{% autoescape off %}{{ buttonLayout }}{% endautoescape %}
+	</div>
+	<div id="timer" class="standartNotice" hidden="hidden">gdfgfdgfd</div>
+	<div style="position: absolute; left: 18%;"><select id="grouplist" {% if hasGroups is not True %}hidden="hidden"{% endif %}>
+			<option>Выберите пользователя</option>
+	</select></div>
+</div>
+
+<div style="width: 100%; margin-top: 3px; align: center;">
+	<ol id="selectable" class="ui-selectable">
+			<!--li class="ui-state-default ui-selectee meter" id="sel1"><span style="width: 60%"><span class="text">1</span></span></li-->
+	</ol>
+</div>
+<div id="recordlist" style="color: #ebedee; background: #4c4c4c; margin: 5px 0 0 0; height: auto; align: center; overflow: hidden; padding: 1px 4px;">
+</div>
+
+<div class="clear"></div>
+<div class="brd">
+	<div id="summary" style="margin: 0px 5px;"></div>
+    <!--div class="legend2nothing"></div><p> - не меняются </p>
+    <div class="legend2add"></div><p> - будут добавлены </p>
+    <div class="legend2remove"></div><p> - будут удалены </p-->
+</div>
+
+</div>
+
+
+{% endblock %}

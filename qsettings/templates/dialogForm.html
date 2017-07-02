@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% load bootstrap3 %}
+{% load static %}
+
+<{% block title %}
+    {{ headString }}
+{% endblock %}>
+
+<{% block bootstrap3_extra_head %}
+    {% autoescape off %} {{ autoRefresh }} {% endautoescape %}
+{% endblock %}>
+
+
+<{% block static %}
+<script type='text/javascript' src='{% static 'js/jquery-ui.js' %}'></script>
+<link rel='stylesheet' type='text/css' href='{% static 'css/jquery-ui/smoothness/jquery-ui.css' %}' />
+{% endblock %}>
+
+{% block content %}
+
+{% autoescape off %}{{ annotationString }}{% endautoescape %}
+<hr />
+    <form role="form" class="form-horizontal" method="post">
+        {% csrf_token %}
+        {% bootstrap_form form layout="horizontal" %}
+        {% buttons layout='horizontal' %}
+            {% autoescape off %} {{ buttonLayout }} {% endautoescape %}
+        {% endbuttons %}
+    </form>
+
+{% endblock %}

@@ -21,6 +21,7 @@ def threadPoll():
 	else:
 		return
 	
+	print('started Heartbeat thread')
 	opt=Options.getOptionsObject()
 	pollingPeriodSec=opt['pollingPeriodSec']
 	appStartTimeStamp=threadPoll.appStartTimeStamp
@@ -32,7 +33,7 @@ def threadPoll():
 		pollStartTimeStamp=int(time.time())
 
 		for server in Servers.objects.all():
-			config=server.configObject
+			config=server.getConfigObject()
 			
 			errors=[]
 			formattedErrors=[]
@@ -148,6 +149,20 @@ def threadPoll():
 	#end while true 
 	# print("heartbeat end")
 	# print(pollResult)
+
+# module initialization
+
+import threading
+import sys
+
+arg=sys.argv
+startThread=True
+if len(arg)==2 and arg[0]=='manage.py' and arg[1]!='runserver':
+	startThread=False
+
+if startThread:
+	t = threading.Thread(target=threadPoll)
+	t.start()	
 
 
 

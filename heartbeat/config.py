@@ -8,5 +8,3 @@ class App(AppConfig):
 	#in lowercase because app label is used in DB table names
 	label = 'heartbeat' 
 	verbose_name = "heartbeat"
-
-

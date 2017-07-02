@@ -13,7 +13,7 @@ from django.conf.urls.static import static
 # import vbUpdate.views, vbUpdate.config
 # import gpolicyUpdate.views, gpolicyUpdate.config
 import heartbeat.views, heartbeat.config
-import shared.tests, shared.config
+# import shared.tests, shared.config
 
 #use verbose app names as main menu headers
 mainMenu=[
@@ -23,7 +23,7 @@ mainMenu=[
 		 {"url":r'^$',"view":heartbeat.views.MainView,"name":heartbeat.config.App.verbose_name},
 		 # {"url":r'^gpolicyUpdate/$',"view":gpolicyUpdate.views.MainView,"name":gpolicyUpdate.config.App.verbose_name},
 
-		 {"url":r'^test/$',"view":shared.tests.TestBoxView,"name":"тестовый"},
+		 # {"url":r'^test/$',"view":shared.tests.TestBoxView,"name":"тестовый"},
 		]
 
 for item in mainMenu:
@@ -46,11 +46,7 @@ urlpatterns.extend ([
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
-import threading
-from heartbeat.threadPoll import threadPoll
-t = threading.Thread(target=threadPoll)
-t.start()	
-# threadPoll()
+
 
 # ^login/$ [name='login']
 # ^logout/$ [name='logout']

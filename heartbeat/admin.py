@@ -47,10 +47,7 @@ class ServersAdmin(admin.ModelAdmin):
 
 					#change initial value to actual value if nodeValue present
 					if fieldIndex<len(nodeValue):
-						if fieldKey=='pwd' and nodeValue[fieldIndex]!='':
-							fieldValue['initial']=Servers.decryptPassword(nodeValue[fieldIndex])
-						else:
-							fieldValue['initial']=nodeValue[fieldIndex]
+						fieldValue['initial']=nodeValue[fieldIndex]
 
 					fieldClass=fieldTemplate[nodeName][fieldKey].fieldClass
 
@@ -73,10 +70,21 @@ class ServersAdmin(admin.ModelAdmin):
 		return res
 
 	def save_model(self,request, model, form, change):
+		#key like "db.0.pwd"
+		def getCfgValue(config,key):
+			key=key.split('.')
+			res=''
+			if len(key)!=3: return res
+			k1,k2,k3=key
+			if (k1 in config) and \
+				k2.isdigit() and int(k2)<len(config[k1]):
+				res=config[k1][int(k2)].get(k3,'')
+			return res
+
 		#{'be.0.server': 'localhost', 'mq.0.server': 'localhost', 'mq.0.user': 'guest', 'db.0.server': 'localhost', 'fe.0.server': 'localhost', 'db.0.pwd': '', 'mq.0.port': 15672, 'mq.0.pwd': 'guest', 'db.0.user': 'qos', 'db.0.port': 5432}
 		data=form.cleaned_data
 		template=Servers.getFieldTemplate()
-		
+		oldData=model.getConfigObject(decryptPwd=False)
 		res={}
 		for nodeName in template.keys():
 			i=0
@@ -90,7 +98,11 @@ class ServersAdmin(admin.ModelAdmin):
 					if fullFieldKey in data.keys(): 
 						itemValue=data[fullFieldKey]
 						if key=='pwd' and itemValue!='':
-							itemValue=Servers.encryptPassword(itemValue)
+							oldEncryptedPwd=getCfgValue(oldData,fullFieldKey)
+							if itemValue==oldEncryptedPwd:
+								pass #field value not changed
+							else:
+								itemValue=Servers.encryptPassword(itemValue)
 						nodeItemData+=[itemValue]
 					else:
 						break

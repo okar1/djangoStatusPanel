@@ -29,25 +29,6 @@ class Servers(models.Model):
 			return ""
 
 	@staticmethod
-	def decryptPassword(ciphertext):
-		try:
-			SALT_SIZE=8
-			ciphertext=b64decode(ciphertext.encode('ascii'))
-			salt=ciphertext[:SALT_SIZE]
-			ciphertext=ciphertext[SALT_SIZE:]
-			# print('salt=',salt)
-			# print('cr=',ciphertext)
-			arc4 = ARC4.new(salt)
-			plaintext=arc4.decrypt(ciphertext)
-			textLen=int(plaintext[:3])
-			# print(textLen)
-			plaintext=plaintext[3:].decode('utf-8')
-			return plaintext[:textLen]
-		except:
-			return ""
-
-
-	@staticmethod
 	def getFieldTemplate():
 		#fields template definition
 		#field values are stored in "config" field
@@ -91,8 +72,31 @@ class Servers(models.Model):
 	name = models.CharField("Имя", unique=True, max_length=255, blank=False, null=False, editable=True)
 	config=models.TextField(null=False, default="")
 
-	@property
-	def configObject(self):
+	def getConfigObject(self,decryptPwd=True):
+
+		def decryptPassword(ciphertext):
+			try:
+				SALT_SIZE=8
+				ciphertext=b64decode(ciphertext.encode('ascii'))
+				salt=ciphertext[:SALT_SIZE]
+				ciphertext=ciphertext[SALT_SIZE:]
+				# print('salt=',salt)
+				# print('cr=',ciphertext)
+				arc4 = ARC4.new(salt)
+				plaintext=arc4.decrypt(ciphertext)
+				textLen=int(plaintext[:3])
+				# print(textLen)
+				plaintext=plaintext[3:].decode('utf-8')
+				return plaintext[:textLen]
+			except:
+				return ""
+
+		def decryptPwdField(fieldKey,fieldValue):
+			if decryptPwd and fieldKey=='pwd' and fieldValue!='':
+				return decryptPassword(fieldValue)
+			else:
+				return fieldValue
+
 		template=self.getFieldTemplate()
 		try:
 			config=json.loads(self.config)
@@ -102,11 +106,7 @@ class Servers(models.Model):
 		if type(config)!=dict:
 			return {nodeName:[{}] for nodeName in template.keys()}
 
-		def decryptPwdField(fieldKey,fieldValue):
-			if fieldKey=='pwd' and fieldValue!='':
-				return Servers.decryptPassword(fieldValue)
-			else:
-				return fieldValue
+
 
 		# {'fe': [{'server':'localhost'}]}
 		return {nodeName:[{nodeKey:decryptPwdField(nodeKey,nodeValue[i])

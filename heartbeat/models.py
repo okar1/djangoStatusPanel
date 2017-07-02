@@ -2,10 +2,50 @@
 from django.db import models
 from shared.dotmap import DotMap
 from django import forms
-import json
+import json,random
+from Crypto.Cipher import ARC4
+from base64 import b64encode, b64decode
+from os import urandom
 
 # Create your models here.
 class Servers(models.Model):
+
+	@staticmethod
+	def encryptPassword(plaintext):
+		try:
+			letters='qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮйцукенгшщзхъфывапролджэячсмитьбю'
+			SALT_SIZE=8
+			salt = urandom(SALT_SIZE)
+			randomText=''.join([random.choice(letters) for i in range(8) ])
+			plaintext = "%3d" % len(plaintext)+plaintext+randomText
+			plaintext=plaintext.encode('utf-8')
+			arc4 = ARC4.new(salt )
+			crypted=arc4.encrypt(plaintext)
+			res=salt+crypted
+			# print('salt=',salt)
+			# print('cr=',crypted)
+			return b64encode(res).decode('ascii')
+		except:
+			return ""
+
+	@staticmethod
+	def decryptPassword(ciphertext):
+		try:
+			SALT_SIZE=8
+			ciphertext=b64decode(ciphertext.encode('ascii'))
+			salt=ciphertext[:SALT_SIZE]
+			ciphertext=ciphertext[SALT_SIZE:]
+			# print('salt=',salt)
+			# print('cr=',ciphertext)
+			arc4 = ARC4.new(salt)
+			plaintext=arc4.decrypt(ciphertext)
+			textLen=int(plaintext[:3])
+			# print(textLen)
+			plaintext=plaintext[3:].decode('utf-8')
+			return plaintext[:textLen]
+		except:
+			return ""
+
 
 	@staticmethod
 	def getFieldTemplate():
@@ -62,9 +102,15 @@ class Servers(models.Model):
 		if type(config)!=dict:
 			return {nodeName:[{}] for nodeName in template.keys()}
 
+		def decryptPwdField(fieldKey,fieldValue):
+			if fieldKey=='pwd' and fieldValue!='':
+				return Servers.decryptPassword(fieldValue)
+			else:
+				return fieldValue
+
 		# {'fe': [{'server':'localhost'}]}
-		return {nodeName:[{nodeKey:nodeValue[i]
-					for i,nodeKey in enumerate(template[nodeName].keys()) if type(nodeValue)==list and i<len(nodeValue)} 
+		return {nodeName:[{nodeKey:decryptPwdField(nodeKey,nodeValue[i])
+					for i,nodeKey in enumerate(template[nodeName].keys()) if i<len(nodeValue)} 
 					for nodeValue in config[nodeName] if nodeName in config.keys() and type(nodeValue)==list]
 					for nodeName in template.keys()}
 

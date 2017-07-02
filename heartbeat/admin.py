@@ -3,18 +3,7 @@ from django.contrib import admin
 from .models import Servers,Options,ServerGroups
 import json
 
-
-# @admin.register(Servers)
-# class ServersAdmin(admin.ModelAdmin):
-# 	pass
-# 	# form=RulesForm
-# 	# list_display = ['rule', 'comment']
-
-
-# # class="form-row field-mqUser"
-# class ServerComponentsForm(forms.ModelForm):
-# 	pass
-
+#TODO now host passwords are transfered to admin form unencrypted
 
 @admin.register(Servers)
 class ServersAdmin(admin.ModelAdmin):
@@ -58,7 +47,10 @@ class ServersAdmin(admin.ModelAdmin):
 
 					#change initial value to actual value if nodeValue present
 					if fieldIndex<len(nodeValue):
-						fieldValue['initial']=nodeValue[fieldIndex]
+						if fieldKey=='pwd' and nodeValue[fieldIndex]!='':
+							fieldValue['initial']=Servers.decryptPassword(nodeValue[fieldIndex])
+						else:
+							fieldValue['initial']=nodeValue[fieldIndex]
 
 					fieldClass=fieldTemplate[nodeName][fieldKey].fieldClass
 
@@ -96,7 +88,10 @@ class ServersAdmin(admin.ModelAdmin):
 					fullFieldKey=nodeName+'.'+str(i)+'.'+key # mq.1.server
 
 					if fullFieldKey in data.keys(): 
-						nodeItemData+=[data[fullFieldKey]]
+						itemValue=data[fullFieldKey]
+						if key=='pwd' and itemValue!='':
+							itemValue=Servers.encryptPassword(itemValue)
+						nodeItemData+=[itemValue]
 					else:
 						break
 				#end for

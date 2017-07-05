@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from .pollRabbitMQ import pollRabbitMQ
-from .dbGetTasks import dbGetTasks
+from . import qosDb
 from .models import Servers,Options
 import time
 
@@ -9,13 +9,13 @@ import time
 #boxTasks like: [{"id":recId,"name":recName,"style":"add/rem"}]
 def threadPoll():
 
-	def formatErrors(errors,formattedErrors,serverName,pollName,pollResult):
-		formattedErrors+=[{'id':serverName+'.'+pollName+'.'+str(i), 'name':pollName+": "+text, 'style':'rem'} for i,text in enumerate(errors)]
-		del errors[:]
+	def formatErrors(errors,serverName,pollName):
+		return [{'id':serverName+'.'+pollName+'.'+str(i), 'name':pollName+": "+text, 'style':'rem'} for i,text in enumerate(errors)]
+		
 
 	if not hasattr(threadPoll,"pollResult"):
 		threadPoll.pollResult=[]
-		threadPoll.oldTasksToPoll={}
+		threadPoll.oldTasks={}
 		threadPoll.pollTimeStamp=int(time.time())
 		threadPoll.appStartTimeStamp=int(time.time())
 	else:
@@ -33,37 +33,48 @@ def threadPoll():
 		pollStartTimeStamp=int(time.time())
 
 		for server in Servers.objects.all():
-			config=server.getConfigObject()
-			
-			errors=[]
-			formattedErrors=[]
-			pollName="Database"
+			serverConfig=server.getConfigObject()
+			serverErrors=[]
 			tasksToPoll=None
-			for dbConf in config['db']:
-				e,tmp=dbGetTasks(dbHost=dbConf['server'],dbPort=dbConf['port'],dbUser=dbConf['user'],dbPassword=dbConf['pwd'])
+			oldTasks=threadPoll.oldTasks.get(server.name,{})
+
+			#******************************************************
+			#******** begin poll modules call *********
+			# (tasksToPoll,server,serverConfig,serverErrors)
+			
+			#poll database
+			pollName="Database"
+			errors=[]
+			
+			for dbConf in serverConfig['db']:
+				e,tmp=qosDb.getTasks(dbHost=dbConf['server'],dbPort=dbConf['port'],dbUser=dbConf['user'],dbPassword=dbConf['pwd'])
 				if e is None:
 					tasksToPoll=tmp
 				else:
 					errors+=[e]
 			#endfor
-			formatErrors(errors,formattedErrors,server.name,pollName,pollResult)
+			serverErrors+=formatErrors(errors,server.name,pollName)
 
 			#polling RabbitMQ
 			if tasksToPoll is not None:
 
 				pollName="RabbitMQ"
-				oldTasksToPoll=threadPoll.oldTasksToPoll.get(server.name,{})
+				errors=[]
+				
+				#now tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10} }} 
+				pollRabbitMQ(errors=errors, tasks=tasksToPoll, rabbits=serverConfig['mq'], opt=opt, oldTasks=oldTasks)
+				#now tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10,"idleTime":timedalta} }} 
 
-				#now tasks like {taskKey: {"agentKey":"aaa", "period":10} }} 
-				pollRabbitMQ(errors=errors, tasks=tasksToPoll, rabbits=config['mq'], opt=opt, oldTasks=oldTasksToPoll)
-				#now tasks like {taskKey: {"agentKey":"aaa", "period":10,"idleTime":timedalta} }} 
+				serverErrors+=formatErrors(errors,server.name,pollName)
 
-				threadPoll.oldTasksToPoll[server.name]=tasksToPoll
-				formatErrors(errors,formattedErrors,server.name,pollName,pollResult)
+			#******** end poll modules call *********
+			#**********************************************
 
-			if len(formattedErrors)>0:
+			threadPoll.oldTasks[server.name]=tasksToPoll
+
+			if len(serverErrors)>0:
 				pollResult+=[{"id":server.name, "name":server.name, "pollServer":server.name,
-						 "error":"Ошибки при опросе сервера "+server.name,"data":formattedErrors,
+						 "error":"Ошибки при опросе сервера "+server.name,"data":serverErrors,
 						 }]
 
 			#create box for every agent (controlblock)
@@ -121,6 +132,7 @@ def threadPoll():
 					for key,taskData in agents.items() if key not in agentHasErrors]
 				pollResult+=resultNoErrors
 			#endif tasks not none
+
 		#end for server
 
 		#sort pollresults

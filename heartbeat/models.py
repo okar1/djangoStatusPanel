@@ -107,8 +107,6 @@ class Servers(models.Model):
 		if type(config)!=dict:
 			return {nodeName:[{}] for nodeName in template.keys()}
 
-
-
 		# {'fe': [{'server':'localhost'}]}
 		return {nodeName:[{nodeKey:decryptPwdField(nodeKey,nodeValue[i])
 					for i,nodeKey in enumerate(template[nodeName].keys()) if i<len(nodeValue)} 

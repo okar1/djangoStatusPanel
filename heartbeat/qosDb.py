@@ -19,7 +19,7 @@ where
 """
 '''
 #return all active task like {taskKey: {"agentKey":"aaa", "period":10} }} 
-def dbGetTasks(dbHost="",dbName="qos",dbUser="qos",dbPassword="",dbPort=5432):
+def getTasks(dbHost="",dbName="qos",dbUser="qos",dbPassword="",dbPort=5432):
 	# get period mproperty (no filter need), period is string
 	error=None
 	result=[]

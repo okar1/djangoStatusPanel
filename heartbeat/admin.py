@@ -19,7 +19,7 @@ class ServersAdmin(admin.ModelAdmin):
 		else: config={}
 
 		#create django form fields with template and config data from DB
-		fields=['name']
+		fields=['name','qosguialarm']
 		for nodeName in fieldTemplate.keys(): #['mq','db','fe','be']:
 			nodeValues=config.get(nodeName,[]) #[['server',port,user,password],[['server',port,user,password]]]
 

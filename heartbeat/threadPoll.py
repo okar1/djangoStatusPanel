@@ -103,7 +103,7 @@ def threadPoll():
 
 					curTasks+=[taskData]
 				#endfor
-
+ 
 				#sort taskdata for every agent
 				for taskData in agents.values():
 					taskData.sort(key=lambda t: \

@@ -71,6 +71,7 @@ class Servers(models.Model):
 	
 	name = models.CharField("Имя", unique=True, max_length=255, blank=False, null=False, editable=True)
 	config=models.TextField(null=False, default="")
+	qosguialarm = models.BooleanField("Оповещать о событиях heartbeat в основном интерфейсе сервера", blank=False, null=False, editable=True, default=False)
 
 	def getConfigObject(self,decryptPwd=True):
 

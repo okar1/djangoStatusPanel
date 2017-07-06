@@ -18,9 +18,16 @@ where
 	mmediaagentmodule.entity_key not like '%.RecordAndStream' 
 """
 '''
-#return all active task like {taskKey: {"agentKey":"aaa", "period":10} }} 
-def getTasks(dbHost="",dbName="qos",dbUser="qos",dbPassword="",dbPort=5432):
+#return tuple with error strings and all active task like {taskKey: {"agentKey":"aaa", "period":10} }} 
+def getTasks(dbConf):
 	# get period mproperty (no filter need), period is string
+	
+	dbHost=dbConf.get('server','')
+	dbPort=dbConf('port',5432)
+	dbName="qos"
+	dbUser=dbConf.get('user','')
+	dbPassword=dbConf.get('pwd','')
+
 	error=None
 	result=[]
 
@@ -59,3 +66,6 @@ def getTasks(dbHost="",dbName="qos",dbUser="qos",dbPassword="",dbPort=5432):
 		error=str(e)
 		return (error,result)
 
+# return tuple with error strings and integer originatorID for specified alarm type string
+def getOriginatorIdForAlertType(dbConf,alertType):
+	pass

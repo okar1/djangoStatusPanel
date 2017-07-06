@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from .pollRabbitMQ import pollRabbitMQ
+from .pollRabbitMQ import qosMq
 from . import qosDb
 from .models import Servers,Options
 import time
@@ -34,26 +34,29 @@ def threadPoll():
 
 		for server in Servers.objects.all():
 			serverConfig=server.getConfigObject()
+			serverDbConfig=None
 			serverErrors=[]
 			tasksToPoll=None
 			oldTasks=threadPoll.oldTasks.get(server.name,{})
 
 			#******************************************************
 			#******** begin poll modules call *********
-			# (tasksToPoll,server,serverConfig,serverErrors)
+			# (tasksToPoll,server,serverConfig,errors)
 			
 			#poll database
 			pollName="Database"
 			errors=[]
 			
 			for dbConf in serverConfig['db']:
-				e,tmp=qosDb.getTasks(dbHost=dbConf['server'],dbPort=dbConf['port'],dbUser=dbConf['user'],dbPassword=dbConf['pwd'])
+				e,tmp=qosDb.getTasks(dbConf)
 				if e is None:
 					tasksToPoll=tmp
+					serverDbConfig=dbConf
 				else:
 					errors+=[e]
 			#endfor
 			serverErrors+=formatErrors(errors,server.name,pollName)
+			errors=None
 
 			#polling RabbitMQ
 			if tasksToPoll is not None:
@@ -62,10 +65,32 @@ def threadPoll():
 				errors=[]
 				
 				#now tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10} }} 
-				pollRabbitMQ(errors=errors, tasks=tasksToPoll, rabbits=serverConfig['mq'], opt=opt, oldTasks=oldTasks)
+				qosMq.pollRabbitMQ(errors=errors, tasks=tasksToPoll, rabbits=serverConfig['mq'], opt=opt, oldTasks=oldTasks)
 				#now tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10,"idleTime":timedalta} }} 
 
 				serverErrors+=formatErrors(errors,server.name,pollName)
+				errors=None
+
+			#send alarms to qos GUI
+			if (tasksToPoll is not None) and (serverDbConfig is not None) and (opt['qosguialarm']==True):
+				pollName="QosGuiAlarm"
+				errors=[]
+
+				originatorId=None
+				e,tmp=qosDb.getOriginatorIdForAlertType(dbConf=serverDbConfig,alertType=opt['qosAlertType'])
+				if e is None:
+					originatorId=tmp
+				else:
+					errors+=[e]
+
+				if originatorId is not None:
+					e=qosMq.sendQosGuiAlarms(errors=errors,tasks=tasksToPoll,rabbits=serverConfig['mq'],opt=opt,originatorId=originatorId)
+					if e is not None:
+						errors+=[e]
+				
+				serverErrors+=formatErrors(errors,server.name,pollName)
+				errors=None
+
 
 			#******** end poll modules call *********
 			#**********************************************

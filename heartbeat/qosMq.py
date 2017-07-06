@@ -176,3 +176,14 @@ def pollRabbitMQ(
 		if 'idleTime' not in task.keys():
 			if (taskKey in oldTasks.keys()) and ('idleTime' in oldTasks[taskKey].keys()):
 				task['idleTime']=oldTasks[taskKey]['idleTime']
+
+
+
+# send alarms to main GUI interface of server
+def sendQosGuiAlarms(errors,tasks,rabbits,opt,originatorId):
+	pass
+# taskPeriod=task['period']
+
+# 						if (pollStartTimeStamp-appStartTimeStamp)>3*max(taskPeriod,pollingPeriodSec):
+# 							taskError=True
+# pollingPeriodSec=opt['pollingPeriodSec']	

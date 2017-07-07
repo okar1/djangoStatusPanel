@@ -180,10 +180,10 @@ def pollRabbitMQ(
 
 
 # send alarms to main GUI interface of server
-def sendQosGuiAlarms(errors,tasks,rabbits,opt,originatorId):
-	pass
-# taskPeriod=task['period']
-
-# 						if (pollStartTimeStamp-appStartTimeStamp)>3*max(taskPeriod,pollingPeriodSec):
-# 							taskError=True
-# pollingPeriodSec=opt['pollingPeriodSec']	
+#tasks like {"agentKey":"aaa", "period":10,"idleTime":timedelta}
+def sendQosGuiAlarms(errors,tasks,rabbits,opt,originatorId,)::
+	pollingPeriodSec=opt['pollingPeriodSec']
+	for taskKey,task in tasks.items():
+		taskPeriod=task['period']
+		if (pollStartTimeStamp-appStartTimeStamp)>3*max(taskPeriod,pollingPeriodSec):
+			pass

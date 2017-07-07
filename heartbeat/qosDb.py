@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import psycopg2
+import re
 
 # get period from mresultconfiguration + filter modules, period is int
 '''
@@ -23,7 +24,7 @@ def getTasks(dbConf):
 	# get period mproperty (no filter need), period is string
 	
 	dbHost=dbConf.get('server','')
-	dbPort=dbConf('port',5432)
+	dbPort=dbConf.get('port',5432)
 	dbName="qos"
 	dbUser=dbConf.get('user','')
 	dbPassword=dbConf.get('pwd','')
@@ -68,4 +69,35 @@ def getTasks(dbConf):
 
 # return tuple with error strings and integer originatorID for specified alarm type string
 def getOriginatorIdForAlertType(dbConf,alertType):
-	pass
+	dbHost=dbConf.get('server','')
+	dbPort=dbConf.get('port',5432)
+	dbName="qos"
+	dbUser=dbConf.get('user','')
+	dbPassword=dbConf.get('pwd','')
+
+	# re.match("^[_A-Za-zа-яА-Я0-9/./-]+$","dAs.AПривет-A_A")
+	if not re.match("^[_A-Za-zа-яА-Я0-9/./-]+$",alertType):
+		return ("Неверно задан тип аварийного сообщения, проверьте настройку qosAlertType",None)
+
+	conString="dbname='{1}' user='{2}' host='{0}' password='{3}' port='{4}'".format(
+		dbHost,dbName,dbUser,dbPassword,dbPort)
+
+	sql="""select gp.id from mgrouppolicy as "gp",malerttype as "al" where
+			gp.state!='DELETED' and
+			gp.alerttype_id=al.id and
+			al.name='{0}'
+			LIMIT 1""".format(alertType)
+
+	try:
+		conn = psycopg2.connect(conString)
+		cur = conn.cursor()
+		cur.execute(sql)
+		rows = cur.fetchall()
+
+		if len(rows)==1:
+			return (None,rows[0][0])
+		else:
+			return ("Создайте хотя бы одно оповещение с типом "+alertType,None)
+
+	except Exception as e:
+		return(str(e),None)

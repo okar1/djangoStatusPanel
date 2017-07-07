@@ -10,7 +10,7 @@ def myCustom(apps, schema_editor):
 	Options.objects.bulk_create([
 		Options(name='maxMsgTotal', value='50000'),
 		Options(name='pollingPeriodSec', value='60'),
-		Options(name='qosSeverity', value='NOTICE'),
+		Options(name='qosSeverity', value='WARNING'), # CRITICAL MAJOR WARNING MINOR NOTICE INDETERMINATE
 		Options(name='qosAlertType', value='qos.BroadbandMonitor.isHostAvailable.none'),
 		])
 

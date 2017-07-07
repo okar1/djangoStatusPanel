@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from .pollRabbitMQ import qosMq
+from . import qosMq
 from . import qosDb
 from .models import Servers,Options
 import time
@@ -66,13 +66,13 @@ def threadPoll():
 				
 				#now tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10} }} 
 				qosMq.pollRabbitMQ(errors=errors, tasks=tasksToPoll, rabbits=serverConfig['mq'], opt=opt, oldTasks=oldTasks)
-				#now tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10,"idleTime":timedalta} }} 
+				#now tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10,"idleTime":timedelta} }} 
 
 				serverErrors+=formatErrors(errors,server.name,pollName)
 				errors=None
 
 			#send alarms to qos GUI
-			if (tasksToPoll is not None) and (serverDbConfig is not None) and (opt['qosguialarm']==True):
+			if (tasksToPoll is not None) and (serverDbConfig is not None) and (server.qosguialarm==True):
 				pollName="QosGuiAlarm"
 				errors=[]
 
@@ -84,9 +84,7 @@ def threadPoll():
 					errors+=[e]
 
 				if originatorId is not None:
-					e=qosMq.sendQosGuiAlarms(errors=errors,tasks=tasksToPoll,rabbits=serverConfig['mq'],opt=opt,originatorId=originatorId)
-					if e is not None:
-						errors+=[e]
+					qosMq.sendQosGuiAlarms(errors=errors,tasks=tasksToPoll,rabbits=serverConfig['mq'],opt=opt,originatorId=originatorId)
 				
 				serverErrors+=formatErrors(errors,server.name,pollName)
 				errors=None

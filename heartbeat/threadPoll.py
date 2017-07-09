@@ -37,6 +37,7 @@ def threadPoll():
 			serverDbConfig=None
 			serverErrors=[]
 			tasksToPoll=None
+			#oldtsks are used to get timestamp if it absent in current taskstopoll
 			oldTasks=threadPoll.oldTasks.get(server.name,{})
 
 			#******************************************************
@@ -71,39 +72,13 @@ def threadPoll():
 				serverErrors+=formatErrors(errors,server.name,pollName)
 				errors=None
 
-			#send alarms to qos GUI
-			if (tasksToPoll is not None) and (serverDbConfig is not None) and (server.qosguialarm==True):
-				pollName="QosGuiAlarm"
-				errors=[]
-
-				originatorId=None
-				e,tmp=qosDb.getOriginatorIdForAlertType(dbConf=serverDbConfig,alertType=opt['qosAlertType'])
-				if e is None:
-					originatorId=tmp
-				else:
-					errors+=[e]
-
-				if originatorId is not None:
-					qosMq.sendQosGuiAlarms(errors=errors,tasks=tasksToPoll,rabbits=serverConfig['mq'],opt=opt,originatorId=originatorId)
-				
-				serverErrors+=formatErrors(errors,server.name,pollName)
-				errors=None
-
-
 			#******** end poll modules call *********
 			#**********************************************
 
-			threadPoll.oldTasks[server.name]=tasksToPoll
-
-			if len(serverErrors)>0:
-				pollResult+=[{"id":server.name, "name":server.name, "pollServer":server.name,
-						 "error":"Ошибки при опросе сервера "+server.name,"data":serverErrors,
-						 }]
-
 			#create box for every agent (controlblock)
 			#set box error if any of its tasks has error
+			agents={}
 			if tasksToPoll is not None:
-				agents={}
 				agentHasErrors=set()
 				for taskKey,task in tasksToPoll.items():
 
@@ -130,31 +105,60 @@ def threadPoll():
 						if abs(idleTime) > 3*max(taskPeriod,pollingPeriodSec):
 							taskError=True
 							
-					taskData={"id":server.name+'.'+pollName+'.'+taskKey,"name":taskText}
+					taskData={"id":server.name+'.'+taskKey,"taskKey":taskKey,"name":taskText}
+					
+					#processing errors for tasks without timestamp and tasks with old timestamp
 					if taskError:
 						taskData.update({"style":"rem"})
 						agentHasErrors.add(agentKey)
 
 					curTasks+=[taskData]
-				#endfor
- 
-				#sort taskdata for every agent
-				for taskData in agents.values():
-					taskData.sort(key=lambda t: \
-						 ("0" if "style" in t.keys() else "1")+t['name'] )
+				#endfor tasks
+ 			#endif tasks not none
+			threadPoll.oldTasks[server.name]=tasksToPoll
+			tasksToPoll=None #not need anymore
 
+			#dublicate errors "no task data" to qos server gui
+			if server.qosguialarm and serverDbConfig:
+				pollName="QosGuiAlarm"
+				errors=[]
 
-				resultWithErrors=[{"id":server.name+'.'+pollName+'.'+key,"name":key, 
-					"error":key+" : Ошибки в одной или нескольких задачах", 
-					"data":taskData, "pollServer":server.name}
-					for key,taskData in agents.items() if key in agentHasErrors]
-				pollResult+=resultWithErrors
+				#get originatorID - service integer number to send alarm
+				e,originatorId=qosDb.getOriginatorIdForAlertType(dbConf=serverDbConfig,alertType=opt['qosAlertType'])
+				if e is None:
+					#send alarm to qos gui
+					qosMq.sendQosGuiAlarms(errors=errors,agents=agents,rabbits=serverConfig['mq'],opt=opt,originatorId=originatorId)
+				else:
+					errors+=[e]
+				
+				serverErrors+=formatErrors(errors,server.name,pollName)
+				errors=None
+				pollName=None
+			#endif qosguialarm				
 
-				resultNoErrors=[{"id":server.name+'.'+pollName+'.'+key,"name":key, 
-					"data":taskData, "pollServer":server.name}
-					for key,taskData in agents.items() if key not in agentHasErrors]
-				pollResult+=resultNoErrors
-			#endif tasks not none
+			#add server errors to pollresult
+			if len(serverErrors)>0:
+				pollResult+=[{"id":server.name, "name":server.name, "pollServer":server.name,
+						 "error":"Ошибки при опросе сервера "+server.name,"data":serverErrors,
+						 }]
+
+			#sort taskdata for every agent
+			for taskData in agents.values():
+				taskData.sort(key=lambda t: \
+					 ("0" if "style" in t.keys() else "1")+t['name'] )
+
+			#add agents with errors to pollresult
+			resultWithErrors=[{"id":server.name+'.'+key,"name":key, 
+				"error":key+" : Ошибки в одной или нескольких задачах", 
+				"data":taskData, "pollServer":server.name}
+				for key,taskData in agents.items() if key in agentHasErrors]
+			pollResult+=resultWithErrors
+
+			#at last add agents without errors to pollresult
+			resultNoErrors=[{"id":server.name+'.'+key,"name":key, 
+				"data":taskData, "pollServer":server.name}
+				for key,taskData in agents.items() if key not in agentHasErrors]
+			pollResult+=resultNoErrors
 
 		#end for server
 

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import requests,json
 from datetime import datetime
-import pika
+import pika,time
+
+amqpPort=5672
 
 # poll all rabbitmq instances for one cluster
 # calculate idletime for each task in tasks
@@ -28,7 +30,6 @@ def pollRabbitMQ(
 	amqp=1
 	http=2
 
-	amqpPort=5672
 	# [http] - get msg cont and msg data via http (it is not recommended way to get data)
 	# [amqp,http] - get msg count via http and msg data via amqp
 	# [amqp] - get msg data via amqp. No msg count available
@@ -180,10 +181,68 @@ def pollRabbitMQ(
 
 
 # send alarms to main GUI interface of server
-#tasks like {"agentKey":"aaa", "period":10,"idleTime":timedelta}
-def sendQosGuiAlarms(errors,tasks,rabbits,opt,originatorId,)::
-	pollingPeriodSec=opt['pollingPeriodSec']
-	for taskKey,task in tasks.items():
-		taskPeriod=task['period']
-		if (pollStartTimeStamp-appStartTimeStamp)>3*max(taskPeriod,pollingPeriodSec):
-			pass
+# originatorID is the service integer number to send alarm
+# agents like {akentkey:[{"id":task_serv_id,"taskKey":taskKey,"name":taskText,"style":"rem"}]}
+def sendQosGuiAlarms(errors,agents,rabbits,opt,originatorId,):
+	amqpLink=None
+	for rab in rabbits:
+		try:
+			amqpTmp=pika.BlockingConnection(
+				pika.ConnectionParameters(rab["server"],amqpPort,'/',pika.PlainCredentials(rab["user"], rab["pwd"])))
+		except Exception as e:
+			errors+=[str(e)]
+		else:
+			amqpLink=amqpTmp
+	#endfor
+
+	if amqpLink is None:
+		return
+
+	for agentKey,tasks in agents.items():
+		tasksKeysWithErrors=[t["taskKey"] for t in tasks if "style" in t.keys()]
+
+		for taskKey in tasksKeysWithErrors:
+			channel = amqpLink.channel()
+
+			channel.basic_publish(exchange='qos.alert',
+				routing_key='',
+				properties=pika.BasicProperties(
+				delivery_mode = 2, # make message persistent
+				content_type='application/json',
+				content_encoding='UTF-8',
+				priority=0,
+				expiration="86400000",
+				headers={'__TypeId__': 'com.tecomgroup.qos.communication.message.AlertMessage'}),
+				# ACTIVATE  CLEAR
+				# INDETERMINATE NOTICE MINOR WARNING MAJOR CRITICAL
+				body="""{
+					"originName":null,
+					"action":"ACTIVATE",
+					"alert":{
+						"alertType":{
+							"name":"{alerttype}",
+							"probableCause":null,
+							"displayName":null,
+							"displayTemplate":null,
+							"description":null},
+						"perceivedSeverity":"{ceverity}",
+						"specificReason":"NONE",
+						"settings":"parameterName=isHostAvailable",
+						"context":null,
+						"indicationType":null,
+						"dateTime":{time},
+						"source":{"displayName":null,
+							"key":"{taskkey}",
+							"type":"TASK"},
+						"originatorID":{originatorid},
+						"originatorName":"123",
+						"detectionValue":0,
+						"thresholdValue":0
+					}}"""
+					.replace("{alerttype}",opt['qosAlertType'])
+					.replace("{ceverity}",opt['qosSeverity'])
+					.replace("{time}", str(int(time.time())*1000))
+					.replace("{taskkey}",taskKey)
+					.replace("{originatorid}",str(int(originatorId)))
+			)
+		

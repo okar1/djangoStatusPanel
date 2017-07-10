@@ -20,15 +20,13 @@ def threadPoll():
 		threadPoll.appStartTimeStamp=int(time.time())
 	else:
 		return
-	
 	print('started Heartbeat thread')
-	opt=Options.getOptionsObject()
-	pollingPeriodSec=opt['pollingPeriodSec']
 	appStartTimeStamp=threadPoll.appStartTimeStamp
 
 	# print("heartbeat started")
 	while True:
-		# print ("polling")
+		opt=Options.getOptionsObject()
+		pollingPeriodSec=opt['pollingPeriodSec']
 		pollResult=[]
 		pollStartTimeStamp=int(time.time())
 
@@ -183,6 +181,7 @@ def threadPoll():
 		threadPoll.pollResult=pollResult
 		# print ("sleeping for ",pollingPeriodSec)
 		threadPoll.pollTimeStamp=int(time.time())
+		# time.sleep(10)
 		time.sleep(pollingPeriodSec)
 
 	#end while true 

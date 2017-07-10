@@ -35,18 +35,6 @@ def pollRabbitMQ(
 	# [amqp] - get msg data via amqp. No msg count available
 	mqProto=[amqp,http]
 
-	def updateTaskWithIdleTime(taskData,resultDateTimeString):
-		# "20170610151013"
-		resultDateTime=datetime.strptime(resultDateTimeString,"%Y%m%d%H%M%S")
-		utcNowDateTime=datetime.utcnow()
-		idleTime=utcNowDateTime-resultDateTime
-		
-		if "idleTime" not in taskData.keys():
-			taskData["idleTime"]=idleTime
-		else:
-			if taskData["idleTime"]>idleTime:
-				taskData["idleTime"]=idleTime
-
 	#poll availablity of all rabbits and choose which one to poll
 	rabbitToPoll=None
 	msgTotal=0
@@ -155,11 +143,11 @@ def pollRabbitMQ(
 					for tr in taskResults:
 						#if result has any parameters - store min task idletime in tasks
 						if len(tr['parameters'].keys())>0:
-							updateTaskWithIdleTime(tasks[taskKey],tr['resultDateTime'])
+							tasks[taskKey]['timeStamp']=tr['resultDateTime']
 
 				elif msgType=='com.tecomgroup.qos.communication.message.TSStructureResultMessage':
 					if len(mData['TSStructure'])>0:
-						updateTaskWithIdleTime(tasks[taskKey],mData['timestamp'])
+						tasks[taskKey]['timeStamp']=mData['timestamp']
 				else:
 					errStr="Неизвестный тип сообщения: "+ msgType
 					if errStr not in errors:
@@ -174,9 +162,18 @@ def pollRabbitMQ(
 
 	#add timestamp from prev poll if absent
 	for taskKey,task in tasks.items():
-		if 'idleTime' not in task.keys():
-			if (taskKey in oldTasks.keys()) and ('idleTime' in oldTasks[taskKey].keys()):
-				task['idleTime']=oldTasks[taskKey]['idleTime']
+		if 'timeStamp' not in task.keys():
+			if (taskKey in oldTasks.keys()) and ('timeStamp' in oldTasks[taskKey].keys()):
+				task['timeStamp']=oldTasks[taskKey]['timeStamp']
+
+	#calculate iddle time
+	for taskKey,task in tasks.items():
+		if 'timeStamp' in task.keys():
+			# "20170610151013"
+			resultDateTime=datetime.strptime(task['timeStamp'],"%Y%m%d%H%M%S")
+			utcNowDateTime=datetime.utcnow()
+			task["idleTime"]=utcNowDateTime-resultDateTime
+
 
 
 
@@ -198,11 +195,12 @@ def sendQosGuiAlarms(errors,agents,rabbits,opt,originatorId,):
 	if amqpLink is None:
 		return
 
+	channel = amqpLink.channel()
 	for agentKey,tasks in agents.items():
-		tasksKeysWithErrors=[t["taskKey"] for t in tasks if "style" in t.keys()]
 
-		for taskKey in tasksKeysWithErrors:
-			channel = amqpLink.channel()
+		for task in tasks:
+			action="ACTIVATE" if "style" in task.keys() else "CLEAR"
+			taskKey=task['taskKey']
 
 			channel.basic_publish(exchange='qos.alert',
 				routing_key='',
@@ -215,9 +213,10 @@ def sendQosGuiAlarms(errors,agents,rabbits,opt,originatorId,):
 				headers={'__TypeId__': 'com.tecomgroup.qos.communication.message.AlertMessage'}),
 				# ACTIVATE  CLEAR
 				# INDETERMINATE NOTICE MINOR WARNING MAJOR CRITICAL
+				# "settings":"parameterName=isHostAvailable",
 				body="""{
 					"originName":null,
-					"action":"ACTIVATE",
+					"action":"{action}",
 					"alert":{
 						"alertType":{
 							"name":"{alerttype}",
@@ -227,7 +226,7 @@ def sendQosGuiAlarms(errors,agents,rabbits,opt,originatorId,):
 							"description":null},
 						"perceivedSeverity":"{ceverity}",
 						"specificReason":"NONE",
-						"settings":"parameterName=isHostAvailable",
+						"settings":"",
 						"context":null,
 						"indicationType":null,
 						"dateTime":{time},
@@ -239,6 +238,7 @@ def sendQosGuiAlarms(errors,agents,rabbits,opt,originatorId,):
 						"detectionValue":0,
 						"thresholdValue":0
 					}}"""
+					.replace("{action}",action)
 					.replace("{alerttype}",opt['qosAlertType'])
 					.replace("{ceverity}",opt['qosSeverity'])
 					.replace("{time}", str(int(time.time())*1000))

@@ -73,51 +73,24 @@ def threadPoll():
 			#******** end poll modules call *********
 			#**********************************************
 
-			#create box for every agent (controlblock)
-			#set box error if any of its tasks has error
-			agents={}
+			#mark some tasks as errors
 			if tasksToPoll is not None:
-				agentHasErrors=set()
 				for taskKey,task in tasksToPoll.items():
-
-					agentKey=task['agentKey']		
-					taskPeriod=task['period']
-					taskDisplayName=task['displayname']
-
-					if agentKey in agents.keys():
-						curTasks=agents[agentKey]
-					else:
-						curTasks=[]
-						agents[agentKey]=curTasks
-
-					taskError=False
+					task['taskError']=False
 					if "idleTime" not in task.keys():
-						taskText="{0} ({1}) : Данные не получены". \
-							format(taskKey,taskDisplayName)
-						if (pollStartTimeStamp-appStartTimeStamp)>3*max(taskPeriod,pollingPeriodSec):
-							taskError=True
+						task['displayname']="{0} ({1}) : Данные не получены".format(taskKey,task['displayname'])
+						if (pollStartTimeStamp-appStartTimeStamp)>3*max(task['period'],pollingPeriodSec):
+						# if (pollStartTimeStamp-appStartTimeStamp)>15:
+							task['taskError']=True
 					else:
 						idleTime=task['idleTime'].days*86400 + task['idleTime'].seconds
-						taskText="{0} ({1}) : {2} сек назад". \
-							format(taskKey,taskDisplayName,idleTime)
-						if abs(idleTime) > 3*max(taskPeriod,pollingPeriodSec):
-							taskError=True
-							
-					taskData={"id":server.name+'.'+taskKey,"taskKey":taskKey,"name":taskText}
-					
-					#processing errors for tasks without timestamp and tasks with old timestamp
-					if taskError:
-						taskData.update({"style":"rem"})
-						agentHasErrors.add(agentKey)
-
-					curTasks+=[taskData]
-				#endfor tasks
- 			#endif tasks not none
-			threadPoll.oldTasks[server.name]=tasksToPoll
-			tasksToPoll=None #not need anymore
+						task['displayname']="{0} ({1}) : {2} сек назад".format(taskKey,task['displayname'],idleTime)
+						if abs(idleTime) > 3*max(task['period'],pollingPeriodSec):
+							task['taskError']=True
+			# endif mark errors
 
 			#dublicate errors "no task data" to qos server gui
-			if server.qosguialarm and serverDbConfig:
+			if tasksToPoll is not None and server.qosguialarm and serverDbConfig:
 				pollName="QosGuiAlarm"
 				errors=[]
 
@@ -125,14 +98,41 @@ def threadPoll():
 				e,originatorId=qosDb.getOriginatorIdForAlertType(dbConf=serverDbConfig,alertType=opt['qosAlertType'])
 				if e is None:
 					#send alarm to qos gui
-					qosMq.sendQosGuiAlarms(errors=errors,agents=agents,rabbits=serverConfig['mq'],opt=opt,originatorId=originatorId)
+					qosMq.sendQosGuiAlarms(errors=errors,tasksToPoll=tasksToPoll,rabbits=serverConfig['mq'],opt=opt,originatorId=originatorId)
 				else:
 					errors+=[e]
 				
 				serverErrors+=formatErrors(errors,server.name,pollName)
 				errors=None
 				pollName=None
-			#endif qosguialarm				
+			#endif qosguialarm	
+
+			#create box for every agent (controlblock)
+			#set box error if any of its tasks has error
+			agents={}
+			agentHasErrors=set()
+			if tasksToPoll is not None:
+				for taskKey,task in tasksToPoll.items():
+					agentKey=task['agentKey']		
+
+					if agentKey in agents.keys():
+						curTasks=agents[agentKey]
+					else:
+						curTasks=[]
+						agents[agentKey]=curTasks
+
+					taskData={"id":server.name+'.'+taskKey,"name":task['displayname']}
+					
+					#processing errors for tasks without timestamp and tasks with old timestamp
+					if task['taskError']:
+						taskData.update({"style":"rem"})
+						agentHasErrors.add(agentKey)
+
+					curTasks+=[taskData]
+ 			#endif create boxes
+
+			threadPoll.oldTasks[server.name]=tasksToPoll
+			tasksToPoll=None #not need anymore
 
 			#add server errors to pollresult
 			if len(serverErrors)>0:
@@ -181,7 +181,7 @@ def threadPoll():
 		threadPoll.pollResult=pollResult
 		# print ("sleeping for ",pollingPeriodSec)
 		threadPoll.pollTimeStamp=int(time.time())
-		# time.sleep(10)
+		# time.sleep(5)
 		time.sleep(pollingPeriodSec)
 
 	#end while true 

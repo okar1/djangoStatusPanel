@@ -106,11 +106,9 @@ class BoxFormView(LoginRequiredMixin,MainMenuView):
 				resultGroups=None
 				resultBoxes=None
 				resultRecords=None				
-				resultProgress=self.__class__._progressArray
 
 				# print("mode ",mode)
 				# print("data ",data)
-				# print(resultProgress)
 
 				if mode=="group":
 					resultGroups=self.getGroups()
@@ -145,12 +143,11 @@ class BoxFormView(LoginRequiredMixin,MainMenuView):
 								if selectedBox!=None:
 									resultRecords={'selectedBox':selectedBox,'records':self.getRecordsForBox(selectedBox)}
 
-								resultProgress=self.__class__._progressArray
 								# end processing button operation
 					self.__class__.buttonTaskWorking=False
 				#endif mode										
 
-				if resultProgress!=None:
+				if self.__class__._progressArray!=None:
 					#sometimes progress object can contain additional fields with big amount of data
 					#trim data before send to js with only "id","progress","error" fields
 					def trimTA(p):
@@ -159,8 +156,7 @@ class BoxFormView(LoginRequiredMixin,MainMenuView):
 							res["id"]=p["id"]
 							return res
 						return p
-					tmp=[trimTA(v) for v in resultProgress]
-					resultProgress=tmp
+					self.__class__._progressArray=[trimTA(v) for v in self.__class__._progressArray]
 				#end if progress format
 				
 				# prepare responce to client	
@@ -173,8 +169,8 @@ class BoxFormView(LoginRequiredMixin,MainMenuView):
 					response['boxes']=resultBoxes
 				if resultRecords is not None:
 					response['boxrec']=resultRecords
-				if resultProgress is not None:
-					response['progress']=resultProgress
+				if self.__class__._progressArray is not None:
+					response['progress']=self.__class__._progressArray
 				progressAgo=self.getProgresUpdatedAgoSec()
 				if progressAgo!=-1:
 					response['progressupdatedagosec']=progressAgo

@@ -162,9 +162,11 @@ def pollRabbitMQ(
 
 	#add timestamp from prev poll if absent
 	for taskKey,task in tasks.items():
-		if 'timeStamp' not in task.keys():
-			if (taskKey in oldTasks.keys()) and ('timeStamp' in oldTasks[taskKey].keys()):
-				task['timeStamp']=oldTasks[taskKey]['timeStamp']
+		if taskKey in oldTasks.keys():
+			if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
+					task['timeStamp']=oldTasks[taskKey]['timeStamp']
+			if ('alarmCleared' not in tasks.keys()) and ('alarmCleared' in oldTasks[taskKey].keys()):
+					task['alarmCleared']=oldTasks[taskKey]['alarmCleared']
 
 	#calculate iddle time
 	for taskKey,task in tasks.items():
@@ -180,7 +182,7 @@ def pollRabbitMQ(
 # send alarms to main GUI interface of server
 # originatorID is the service integer number to send alarm
 # agents like {akentkey:[{"id":task_serv_id,"taskKey":taskKey,"name":taskText,"style":"rem"}]}
-def sendQosGuiAlarms(errors,agents,rabbits,opt,originatorId,):
+def sendQosGuiAlarms(errors,tasksToPoll,rabbits,opt,originatorId,):
 	amqpLink=None
 	for rab in rabbits:
 		try:
@@ -196,12 +198,19 @@ def sendQosGuiAlarms(errors,agents,rabbits,opt,originatorId,):
 		return
 
 	channel = amqpLink.channel()
-	for agentKey,tasks in agents.items():
+	for taskKey,task in tasksToPoll.items():
+		action="ACTIVATE" if task['taskError'] else "CLEAR"
 
-		for task in tasks:
-			action="ACTIVATE" if "style" in task.keys() else "CLEAR"
-			taskKey=task['taskKey']
+		if action=="ACTIVATE":
+			publishAlarm=True
+			tasksToPoll[taskKey]['alarmCleared']=False
 
+		if action=="CLEAR":
+			publishAlarm= not tasksToPoll[taskKey].get('alarmCleared',False)
+			tasksToPoll[taskKey]['alarmCleared']=True
+
+		if publishAlarm:
+			# print('publish alarm')
 			channel.basic_publish(exchange='qos.alert',
 				routing_key='',
 				properties=pika.BasicProperties(

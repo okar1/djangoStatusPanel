@@ -210,7 +210,6 @@ def sendQosGuiAlarms(errors,tasksToPoll,rabbits,opt,originatorId,):
 		if action=="ACTIVATE":
 			if alarmPublishStatus!=1:
 				needPublish=True
-				print('activate',taskKey)
 				alarmPublishStatus=1
 
 		if action=="CLEAR":

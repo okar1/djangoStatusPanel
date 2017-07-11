@@ -201,21 +201,21 @@ def sendQosGuiAlarms(errors,tasksToPoll,rabbits,opt,originatorId,):
 	for taskKey,task in tasksToPoll.items():
 		action="ACTIVATE" if task['taskError'] else "CLEAR"
 
-		# true - published activate
-		# false - published clear
-		# none - not published
-		alarmPublishStatus=tasksToPoll[taskKey].get('alarmPublishStatus',None)
+		# 0 - not published
+		# 1 - published activate
+		# 2 - published clear
+		alarmPublishStatus=tasksToPoll[taskKey].get('alarmPublishStatus',0)
 		needPublish=False
 
 		if action=="ACTIVATE":
-			if alarmPublishStatus!=True:
+			if alarmPublishStatus!=1:
 				needPublish=True
-				alarmPublishStatus=True
+				alarmPublishStatus=1
 
 		if action=="CLEAR":
-			if alarmPublishStatus!=False:
+			if alarmPublishStatus!=2:
 				needPublish=True
-				alarmPublishStatus=False
+				alarmPublishStatus=2
 
 		if needPublish:
 			tasksToPoll[taskKey]['alarmPublishStatus']=alarmPublishStatus

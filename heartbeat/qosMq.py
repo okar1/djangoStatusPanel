@@ -165,8 +165,8 @@ def pollRabbitMQ(
 		if taskKey in oldTasks.keys():
 			if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
 					task['timeStamp']=oldTasks[taskKey]['timeStamp']
-			if ('alarmCleared' not in tasks.keys()) and ('alarmCleared' in oldTasks[taskKey].keys()):
-					task['alarmCleared']=oldTasks[taskKey]['alarmCleared']
+			if ('alarmPublishStatus' not in tasks.keys()) and ('alarmPublishStatus' in oldTasks[taskKey].keys()):
+					task['alarmPublishStatus']=oldTasks[taskKey]['alarmPublishStatus']
 
 	#calculate iddle time
 	for taskKey,task in tasks.items():
@@ -210,6 +210,7 @@ def sendQosGuiAlarms(errors,tasksToPoll,rabbits,opt,originatorId,):
 		if action=="ACTIVATE":
 			if alarmPublishStatus!=1:
 				needPublish=True
+				print('activate',taskKey)
 				alarmPublishStatus=1
 
 		if action=="CLEAR":

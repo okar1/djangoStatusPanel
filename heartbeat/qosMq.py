@@ -201,15 +201,24 @@ def sendQosGuiAlarms(errors,tasksToPoll,rabbits,opt,originatorId,):
 	for taskKey,task in tasksToPoll.items():
 		action="ACTIVATE" if task['taskError'] else "CLEAR"
 
+		# true - published activate
+		# false - published clear
+		# none - not published
+		alarmPublishStatus=tasksToPoll[taskKey].get('alarmPublishStatus',None)
+		needPublish=False
+
 		if action=="ACTIVATE":
-			publishAlarm=True
-			tasksToPoll[taskKey]['alarmCleared']=False
+			if alarmPublishStatus!=True:
+				needPublish=True
+				alarmPublishStatus=True
 
 		if action=="CLEAR":
-			publishAlarm= not tasksToPoll[taskKey].get('alarmCleared',False)
-			tasksToPoll[taskKey]['alarmCleared']=True
+			if alarmPublishStatus!=False:
+				needPublish=True
+				alarmPublishStatus=False
 
-		if publishAlarm:
+		if needPublish:
+			tasksToPoll[taskKey]['alarmPublishStatus']=alarmPublishStatus
 			# print('publish alarm')
 			channel.basic_publish(exchange='qos.alert',
 				routing_key='',

@@ -104,8 +104,7 @@ def pollIddleTime(mqAmqpConnection, vErrors, vTasksToPoll, oldTasks):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
             if ('alarmPublishStatus' not in vTasksToPoll.keys()) and \
                     ('alarmPublishStatus' in oldTasks[taskKey].keys()):
-                task['alarmPublishStatus'] = oldTasks[
-                    taskKey]['alarmPublishStatus']
+                task['alarmPublishStatus'] = oldTasks[taskKey]['alarmPublishStatus']
 
     # calculate iddle time
     for taskKey, task in vTasksToPoll.items():

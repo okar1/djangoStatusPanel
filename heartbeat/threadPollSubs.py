@@ -12,6 +12,7 @@ def formatErrors(errors, serverName, pollName):
 
 
 # dbConfig -> (dbConnection,tasksToPoll)
+# get db connection for later use and query list of tasks from db
 def pollDb(dbConfig, serverName, vServerErrors):
     # poll database
     pollName = "Database"
@@ -58,7 +59,6 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, oldTasks, vTasksToP
     for mqConf in mqConfig:
         try:
             msgTotal, amqpLink = qosMq.getMqConnection(mqConf)
-
         except Exception as e:
             errors += [str(e)]
         else:
@@ -108,15 +108,14 @@ def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult):
             taskData = {"id": serverName + '.' +
                         taskKey, "name": task['displayname']}
 
-            # processing errors for tasks without timestamp and tasks
-            # with old timestamp
+            # processing errors for tasks without timestamp and tasks with old timestamp
             if task['taskError']:
                 taskData.update({"style": "rem"})
                 agentHasErrors.add(agentKey)
 
             curTasks += [taskData]
 
-    # add server errors to vPollresult
+    # add box with server errors to vPollresult
     if len(serverErrors) > 0:
         vPollResult += [{
             "id": serverName,
@@ -143,7 +142,7 @@ def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult):
         if key in agentHasErrors]
     vPollResult += resultWithErrors
 
-    # agents without errors to vPollresult
+    # add agents without errors to vPollresult
     resultNoErrors = [{"id": serverName + '.' + key,
                        "name": key,
                        "data": taskData,
@@ -154,7 +153,7 @@ def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult):
 
 
 def pollResultPostProcessing(vPollResult):
-    # sort pollresults
+    # sort pollresults, make boxes with errors first
     vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['name'])
 
     # calc errors percent in vPollresult
@@ -187,8 +186,7 @@ def markErrors(pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec, vTasksTo
                 # if (pollStartTimeStamp-appStartTimeStamp)>15:
                 task['taskError'] = True
         else:
-            idleTime = task['idleTime'].days * \
-                86400 + task['idleTime'].seconds
+            idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
             task['displayname'] = "{0} ({1}) : {2} сек назад".format(
                 taskKey, task['displayname'], idleTime)
             if abs(idleTime) > \

@@ -7,7 +7,7 @@ from . import threadPollSubs as subs
 
 # pollResult like
 # [{"id":boxId, "name":BoxName, "error":someErrorText,
-# "pollServer": ,data:boxTasks}]
+#   "pollServer": ,data:boxTasks}]
 # boxTasks like: [{"id":recId,"name":recName,"style":"add/rem"}]
 
 
@@ -33,7 +33,7 @@ def threadPoll():
             serverErrors = []
             tasksToPoll = None
             # oldtsks are used to get timestamp if it absent in current taskstopoll
-            oldTasks = threadPoll.oldTasks.get(server.name, {})
+            oldTasks = threadPoll.oldTasks.get(server.name, None)
             oldTasks = {} if oldTasks is None else oldTasks
 
             # query DB. Get Db connection and list of tasks for monitoring
@@ -42,9 +42,8 @@ def threadPoll():
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
             # polling RabbitMQ. Get MQ connection. Add "idleTime" to tasksToPoll
-            # mqHttpConf is one of serverConfig['mq'] for later http connections
+            # mqHttpConf is one of serverConfig['mq'] for later http api connections
             if tasksToPoll is not None:
-                print(oldTasks)
                 mqAmqpConnection, mqHttpConf = subs.pollMQ(
                                                     serverConfig['mq'],
                                                     server.name,
@@ -81,6 +80,10 @@ def threadPoll():
         # poll completed, set pollResult accessible to others
         threadPoll.pollResult = pollResult
         threadPoll.pollTimeStamp = int(time.time())
+
+        serverDb.close()
+        mqAmqpConnection.close()
+
         # time.sleep(5)
         time.sleep(opt['pollingPeriodSec'])
 

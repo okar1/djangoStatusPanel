@@ -6,70 +6,49 @@ import pika
 import time
 
 amqpPort = 5672
+heartbeatQueue = 'heartbeat'
+
+
+# mqconfig --> (msgTotal, mqConnection)
+def getMqConnection(mqConf):
+
+    # try to connect via http api
+    req = requests.get('http://{0}:{1}/api/overview'.format(
+        mqConf["server"], mqConf["port"]), auth=(mqConf["user"], mqConf["pwd"]))
+
+    # get total number of messages on rabbitMQ
+    msgTotal = req.json()['queue_totals']['messages']
+
+    # try to connect via amqp
+    amqpLink = pika.BlockingConnection(
+        pika.ConnectionParameters(
+            mqConf["server"],
+            amqpPort,
+            '/',
+            pika.PlainCredentials(mqConf["user"], mqConf["pwd"])))
+    return (msgTotal, amqpLink)
 
 
 # poll all rabbitmq instances for one cluster
 # calculate idletime for each task in tasks
 # store result in tasks[taskKey]["idleTime"]
-def connectAndPollIddleTime(errors, vTasksToPoll, rabbits, maxMsgTotal, oldTasks):
+def pollIddleTime(mqAmqpConnection, vErrors, vTasksToPoll, oldTasks):
 
-    heartbeatQueue = 'heartbeat'
-
-    # poll availablity of all rabbits and choose which one to poll
-    rabbitToPoll = None
-    amqpLink = None
-    msgTotal = 0
-    for rab in rabbits:
-        try:
-            req = requests.get('http://{0}:{1}/api/overview'.format(
-                rab["server"], rab["port"]), auth=(rab["user"], rab["pwd"]))
-            msgTotal = req.json()['queue_totals']['messages']
-
-            amqpLink = pika.BlockingConnection(
-                pika.ConnectionParameters(
-                    rab["server"],
-                    amqpPort,
-                    '/',
-                    pika.PlainCredentials(rab["user"], rab["pwd"])))
-
-        except Exception as e:
-            errors += [str(e)]
-        else:
-            rabbitToPoll = rab
-    # endfor
-
-    if rabbitToPoll is None:
-        return
-
-    if msgTotal > maxMsgTotal:
-        errors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
-
-    # poll rabbitMQ heartbeat queue
-    amqpLink = pika.BlockingConnection(
-        pika.ConnectionParameters(
-            rabbitToPoll["server"],
-            amqpPort,
-            '/',
-            pika.PlainCredentials(rab["user"], rab["pwd"]))
-    ).channel()
-
+    amqpLink = mqAmqpConnection.channel()
     mqMessages = [""]
     while len(mqMessages) > 0:
 
         # connect and check errors (amqp)
         getOk = None
         try:
-            getOk, * \
-                mqMessages = amqpLink.basic_get(
-                    heartbeatQueue, no_ack=True)
+            getOk, *mqMessages = amqpLink.basic_get(heartbeatQueue, no_ack=True)
         except Exception as e:
-            errors += [str(e)]
+            vErrors += [str(e)]
             return
 
         if getOk:
             if mqMessages[0].content_type != 'application/json':
-                errors += ["Неверный тип данных " +
-                           mqMessages[0].content_type]
+                vErrors += ["Неверный тип данных " + mqMessages[0].content_type]
                 return
             mqMessages = [mqMessages]
         else:
@@ -83,8 +62,8 @@ def connectAndPollIddleTime(errors, vTasksToPoll, rabbits, maxMsgTotal, oldTasks
                 msgType = msg[0].headers['__TypeId__']
             except Exception as e:
                 errStr = "Ошибка обработки сообщения: нет информации о типе."
-                if errStr not in errors:
-                    errors += [errStr]
+                if errStr not in vErrors:
+                    vErrors += [errStr]
                 continue
 
             # parse message payload
@@ -92,8 +71,7 @@ def connectAndPollIddleTime(errors, vTasksToPoll, rabbits, maxMsgTotal, oldTasks
                 mData = json.loads((msg[1]).decode('utf-8'))
                 taskKey = mData['taskKey']
                 if taskKey not in vTasksToPoll.keys():
-                    errors += ["Задача " + taskKey +
-                               " не зарегистрирована в БД"]
+                    vErrors += ["Задача " + taskKey + " не зарегистрирована в БД"]
                     continue
 
                 if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
@@ -110,14 +88,13 @@ def connectAndPollIddleTime(errors, vTasksToPoll, rabbits, maxMsgTotal, oldTasks
                         vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
                 else:
                     errStr = "Неизвестный тип сообщения: " + msgType
-                    if errStr not in errors:
-                        errors += [errStr]
+                    if errStr not in vErrors:
+                        vErrors += [errStr]
 
             except Exception as e:
-                errors += [str(e)]
+                vErrors += [str(e)]
                 return
         # endfor messages in current request
-        # break
     # endwhile messages in rabbit queue
 
     # add timestamp from prev poll if absent
@@ -144,26 +121,9 @@ def connectAndPollIddleTime(errors, vTasksToPoll, rabbits, maxMsgTotal, oldTasks
 # originatorID is the service integer number to send alarm
 # agents like
 # {akentkey:[{"id":task_serv_id,"taskKey":taskKey,"name":taskText,"style":"rem"}]}
-def sendQosGuiAlarms(errors, tasksToPoll, rabbits, opt, originatorId,):
-    amqpLink = None
-    for rab in rabbits:
-        try:
-            amqpTmp = pika.BlockingConnection(
-                pika.ConnectionParameters(
-                    rab["server"],
-                    amqpPort,
-                    '/',
-                    pika.PlainCredentials(rab["user"], rab["pwd"])))
-        except Exception as e:
-            errors += [str(e)]
-        else:
-            amqpLink = amqpTmp
-    # endfor
+def sendQosGuiAlarms(errors, tasksToPoll, mqAmqpConnection, opt, originatorId):
 
-    if amqpLink is None:
-        return
-
-    channel = amqpLink.channel()
+    channel = mqAmqpConnection.channel()
     for taskKey, task in tasksToPoll.items():
         action = "ACTIVATE" if task['taskError'] else "CLEAR"
 

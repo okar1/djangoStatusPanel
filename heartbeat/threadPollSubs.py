@@ -16,39 +16,78 @@ def pollDb(dbConfig, serverName, vServerErrors):
     # poll database
     pollName = "Database"
     errors = []
-    dbConnection = None
-    tasksToPoll = None
+    dbConnections = []
 
+    # check all db in dbconf
     for dbConf in dbConfig:
         try:
-            dbConnection = qosDb.getDbConnection(dbConf)
+            curConnection = qosDb.getDbConnection(dbConf)
         except Exception as e:
             errors += [str(e)]
             continue
+        else:
+            dbConnections += [curConnection]
+
+    tasksToPoll = None
+    dbConnection = None
+
+    if dbConnections:
+        # close all connections but first
+        for i in range(1, len(dbConnections)):
+            dbConnections[i].close()
+        # use first connection in later tasks
+        dbConnection = dbConnections[0]
 
         e, tmp = qosDb.getTasks(dbConnection)
         if e is None:
             tasksToPoll = tmp
         else:
             errors += [e]
+    # endif
     vServerErrors += formatErrors(errors, serverName, pollName)
     return (dbConnection, tasksToPoll)
 
 
-# mqConfig -> mqConnection
-def pollMQ(mqConfig, serverName, oldTasks, maxMsgTotal, vTasksToPoll, serverErrors):
+# mqConfig -> (mqAmqpConnection, mqHttpConf)
+def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, oldTasks, vTasksToPoll):
     pollName = "RabbitMQ"
     errors = []
+    mqConnections = []
+    msgTotal = 0
 
-    qosMq.connectAndPollIddleTime(
-        errors=errors,
-        tasks=vTasksToPoll,
-        rabbits=mqConfig,
-        maxMsgTotal=maxMsgTotal,
-        oldTasks=oldTasks)
+    for mqConf in mqConfig:
+        try:
+            msgTotal, amqpLink = qosMq.getMqConnection(mqConf)
 
-    serverErrors += formatErrors(errors, serverName, pollName)
-    return mqConnection
+        except Exception as e:
+            errors += [str(e)]
+        else:
+            mqConnections += [(mqConf, amqpLink)]
+    # endfor
+
+    mqAmqpConnection = None
+    mqHttpConf = None
+
+    if mqConnections:
+        # close all connections but first
+        for i in range(1, len(mqConnections)):
+            mqConnections[i][1].close()
+
+        # use first connection in later tasks
+        mqHttpConf = mqConnections[0][0]
+        mqAmqpConnection = mqConnections[0][1]
+
+        # check if too many messages on rabbitMQ
+        if msgTotal > maxMsgTotal:
+            errors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
+
+        # add iddleTime to tasksToPoll
+        qosMq.pollIddleTime(mqAmqpConnection, errors, vTasksToPoll, oldTasks)
+    # endif
+
+    vServerErrors += formatErrors(errors, serverName, pollName)
+    return (mqAmqpConnection, mqHttpConf)
+
 
 # create box for every agent (controlblock)
 # agents like {agent:[tasks]}
@@ -157,7 +196,7 @@ def markErrors(pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec, vTasksTo
                 task['taskError'] = True
 
 
-def qosGuiAlarm(tasksToPoll, serverName, serverDb, opt, vServerErrors):
+def qosGuiAlarm(tasksToPoll, serverName, serverDb, mqAmqpConnection, opt, vServerErrors):
     # dublicate errors "no task data" to qos server gui
     pollName = "QosGuiAlarm"
     errors = []
@@ -169,7 +208,7 @@ def qosGuiAlarm(tasksToPoll, serverName, serverDb, opt, vServerErrors):
         # send alarm to qos gui
         qosMq.sendQosGuiAlarms(errors=errors,
                                tasksToPoll=tasksToPoll,
-                               rabbits=serverConfig['mq'],
+                               mqAmqpConnection=mqAmqpConnection,
                                opt=opt,
                                originatorId=originatorId)
     else:

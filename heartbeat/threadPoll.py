@@ -3,7 +3,6 @@ import time
 import threading
 import sys
 from .models import Servers, Options
-from . import qosMq
 from . import threadPollSubs as subs
 
 # pollResult like
@@ -35,6 +34,7 @@ def threadPoll():
             tasksToPoll = None
             # oldtsks are used to get timestamp if it absent in current taskstopoll
             oldTasks = threadPoll.oldTasks.get(server.name, {})
+            oldTasks = {} if oldTasks is None else oldTasks
 
             # query DB. Get Db connection and list of tasks for monitoring
             # serverConfig -> (serverDb,tasksToPoll)
@@ -42,19 +42,33 @@ def threadPoll():
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
             # polling RabbitMQ. Get MQ connection. Add "idleTime" to tasksToPoll
+            # mqHttpConf is one of serverConfig['mq'] for later http connections
             if tasksToPoll is not None:
-                serverMQ = subs.pollMQ(serverConfig['mq'], server.name, opt["maxMsgTotal"], serverErrors, oldTasks, taskstopoll)
+                print(oldTasks)
+                mqAmqpConnection, mqHttpConf = subs.pollMQ(
+                                                    serverConfig['mq'],
+                                                    server.name,
+                                                    opt["maxMsgTotal"],
+                                                    serverErrors,
+                                                    oldTasks,
+                                                    tasksToPoll)
 
+                # set task['taskError'] = True for some conditions
+                subs.markErrors(pollStartTimeStamp,
+                                threadPoll.appStartTimeStamp,
+                                opt['pollingPeriodSec'],
+                                tasksToPoll)
 
-            # set task['taskError'] = True for some conditions
-            subs.markErrors(pollStartTimeStamp,
-                            threadPoll.appStartTimeStamp,
-                            opt['pollingPeriodSec'],
-                            tasksToPoll)
-
-            # dublicate alarms to qos gui
-            if server.qosGuiAlarm and serverDb:
-                subs.qosGuiAlarm(tasksToPoll, server.name, serverDb, opt, serverErrors)
+                # dublicate task alarms to qos gui
+                # TODO: dublicate server alarms from serverErrors too
+                if server.qosguialarm and serverDb and mqAmqpConnection:
+                    subs.qosGuiAlarm(
+                        tasksToPoll,
+                        server.name,
+                        serverDb,
+                        mqAmqpConnection,
+                        opt,
+                        serverErrors)
 
             # tasksToPoll -> pollResult
             subs.makeServerPollResult(tasksToPoll, server.name, serverErrors, pollResult)

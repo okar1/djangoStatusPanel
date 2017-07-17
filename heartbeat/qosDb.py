@@ -20,24 +20,28 @@ where
     mmediaagentmodule.entity_key not like '%.RecordAndStream'
 """
 '''
-# return tuple with error strings and all active task like {taskKey:
-# {"agentKey":"aaa", "period":10} }}
 
 
-def getTasks(dbConf):
-    # get period mproperty (no filter need), period is string
-
+def getDbConnection(dbConf):
     dbHost = dbConf.get('server', '')
     dbPort = dbConf.get('port', 5432)
     dbName = "qos"
     dbUser = dbConf.get('user', '')
     dbPassword = dbConf.get('pwd', '')
 
-    error = None
-    result = []
-
     conString = "dbname='{1}' user='{2}' host='{0}' password='{3}' port='{4}'".format(
         dbHost, dbName, dbUser, dbPassword, dbPort)
+
+    return psycopg2.connect(conString)
+
+
+# return tuple with error strings and all active task like {taskKey:
+# {"agentKey":"aaa", "period":10} }}
+def getTasks(dbConnection):
+    # get period mproperty (no filter need), period is string
+
+    error = None
+    result = []
 
     sql = """select magent.entity_key as "agentkey",
     magenttask.entity_key as "taskkey",
@@ -56,40 +60,25 @@ def getTasks(dbConf):
     """
 
     try:
-        conn = psycopg2.connect(conString)
-        cur = conn.cursor()
+        cur = dbConnection.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
 
         result = {row[1]: {"agentKey": row[0], "displayname": row[
             2], "period": int(row[3])} for row in rows}
-        # result={}
-        # for row in rows:
-        #   v=result.get(row[0],{})
-        #   v.update({row[1]: {"period":int(row[2])} })
-        #   result[row[0]]=v
         return (error, result)
     except Exception as e:
         error = str(e)
         return (error, result)
 
+
 # return tuple with error strings and integer originatorID for specified
 # alarm type string
-
-
-def getOriginatorIdForAlertType(dbConf, alertType):
-    dbHost = dbConf.get('server', '')
-    dbPort = dbConf.get('port', 5432)
-    dbName = "qos"
-    dbUser = dbConf.get('user', '')
-    dbPassword = dbConf.get('pwd', '')
+def getOriginatorIdForAlertType(dbConnection, alertType):
 
     # re.match("^[_A-Za-zа-яА-Я0-9/./-]+$","dAs.AПривет-A_A")
     if not re.match("^[_A-Za-zа-яА-Я0-9/./-]+$", alertType):
         return ("Неверно задан тип аварийного сообщения, проверьте настройку qosAlertType", None)
-
-    conString = "dbname='{1}' user='{2}' host='{0}' password='{3}' port='{4}'".format(
-        dbHost, dbName, dbUser, dbPassword, dbPort)
 
     sql = """select gp.id from mgrouppolicy as "gp",malerttype as "al" where
             gp.state!='DELETED' and
@@ -98,8 +87,7 @@ def getOriginatorIdForAlertType(dbConf, alertType):
             LIMIT 1""".format(alertType)
 
     try:
-        conn = psycopg2.connect(conString)
-        cur = conn.cursor()
+        cur = dbConnection.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
 

@@ -32,6 +32,13 @@ def threadPoll():
             serverConfig = server.getConfigObject()
             serverErrors = []
             tasksToPoll = None
+            # connection to database
+            serverDb = None
+            # amqp connection to rabbit
+            mqAmqpConnection = None
+            # credintials for access rabbit thhp api
+            mqHttpConf = None
+
             # oldtsks are used to get timestamp if it absent in current taskstopoll
             oldTasks = threadPoll.oldTasks.get(server.name, None)
             oldTasks = {} if oldTasks is None else oldTasks
@@ -52,37 +59,47 @@ def threadPoll():
                                                     oldTasks,
                                                     tasksToPoll)
 
-                # set task['taskError'] = True for some conditions
-                subs.markErrors(pollStartTimeStamp,
-                                threadPoll.appStartTimeStamp,
-                                opt['pollingPeriodSec'],
-                                tasksToPoll)
+                # tasksToPoll,serverErrors -> pollResult
+                subs.makePollResult()
+                tasksToPoll = None
+
+                subs.runHeartBeatTasks(pollResult[server.name])
+
+                subs.markTaskErrors(pollResult[server.name])
 
                 # dublicate task alarms to qos gui
                 # TODO: dublicate server alarms from serverErrors too
-                if server.qosguialarm and serverDb and mqAmqpConnection:
-                    subs.qosGuiAlarm(
-                        tasksToPoll,
-                        server.name,
-                        serverDb,
-                        mqAmqpConnection,
-                        opt,
-                        serverErrors)
+                # if server.qosguialarm and serverDb and mqAmqpConnection:
+                #     subs.qosGuiAlarm(
+                #         tasksToPoll,
+                #         server.name,
+                #         serverDb,
+                #         mqAmqpConnection,
+                #         opt,
+                #         serverErrors)
 
-            # tasksToPoll -> pollResult
-            subs.makeServerPollResult(tasksToPoll, server.name, serverErrors, pollResult)
+                subs.serverPostProcessing(pollResult[server.name])
+
+
+
+            # tasksToPoll,serverErrors -> pollResult
+            subs.makeServerPollResult(tasksToPoll, server.name, serverErrors, pollResult,
+                pollStartTimeStamp,threadPoll.appStartTimeStamp,opt['pollingPeriodSec'])
+
             threadPoll.oldTasks[server.name] = tasksToPoll
             tasksToPoll = None
+            serverErrors = None
+
+            if serverDb:
+                serverDb.close()
+            if mqAmqpConnection:
+                mqAmqpConnection.close()
         # end for server
 
-        subs.pollResultPostProcessing(pollResult)
-
         # poll completed, set pollResult accessible to others
+        subs.finalPostProcessing(pollResult) ****************
         threadPoll.pollResult = pollResult
         threadPoll.pollTimeStamp = int(time.time())
-
-        serverDb.close()
-        mqAmqpConnection.close()
 
         # time.sleep(5)
         time.sleep(opt['pollingPeriodSec'])

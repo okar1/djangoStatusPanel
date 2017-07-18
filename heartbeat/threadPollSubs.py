@@ -92,7 +92,21 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, oldTasks, vTasksToP
 # create box for every agent (controlblock)
 # agents like {agent:[tasks]}
 # taskstopoll -> pollResult
-def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult):
+def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult,pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
+    for taskKey, task in tasksToPoll.items():
+        task['taskError'] = False
+        if "idleTime" not in task.keys():
+            task['displayname'] = "{0} ({1}) : Данные не получены".format(
+                taskKey, task['displayname'])
+            task['taskError'] = True
+        else:
+            idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
+            task['displayname'] = "{0} ({1}) : {2} сек назад".format(
+                taskKey, task['displayname'], idleTime)
+            if abs(idleTime) > \
+                    3 * max(task['period'], pollingPeriodSec):
+                task['taskError'] = True
+
     agents = {}
     agentHasErrors = set()
     if tasksToPoll is not None:
@@ -171,27 +185,6 @@ def pollResultPostProcessing(vPollResult):
                     errHead = poll['pollServer'] + " : " + poll['name']
                 poll['error'] = "{0} : Обнаружено ошибок: {1} из {2}".format(
                     errHead, errCount, count)
-
-
-# mark some tasks as errors
-# set task['taskError'] = True
-def markErrors(pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec, vTasksToPoll):
-    for taskKey, task in vTasksToPoll.items():
-        task['taskError'] = False
-        if "idleTime" not in task.keys():
-            task['displayname'] = "{0} ({1}) : Данные не получены".format(
-                taskKey, task['displayname'])
-            if (pollStartTimeStamp - appStartTimeStamp) > \
-                    3 * max(task['period'], pollingPeriodSec):
-                # if (pollStartTimeStamp-appStartTimeStamp)>15:
-                task['taskError'] = True
-        else:
-            idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
-            task['displayname'] = "{0} ({1}) : {2} сек назад".format(
-                taskKey, task['displayname'], idleTime)
-            if abs(idleTime) > \
-                    3 * max(task['period'], pollingPeriodSec):
-                task['taskError'] = True
 
 
 def qosGuiAlarm(tasksToPoll, serverName, serverDb, mqAmqpConnection, opt, vServerErrors):

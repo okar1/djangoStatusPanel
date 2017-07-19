@@ -46,6 +46,7 @@ def pollDb(dbConfig, serverName, vServerErrors):
             errors += [e]
     # endif
     vServerErrors += formatErrors(errors, serverName, pollName)
+    tasksToPoll = {} if tasksToPoll is None else tasksToPoll
     return (dbConnection, tasksToPoll)
 
 
@@ -88,25 +89,30 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, oldTasks, vTasksToP
     vServerErrors += formatErrors(errors, serverName, pollName)
     return (mqAmqpConnection, mqHttpConf)
 
-
-# create box for every agent (controlblock)
-# agents like {agent:[tasks]}
-# taskstopoll -> pollResult
-def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult,pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
+def markTasks(tasksToPoll, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
     for taskKey, task in tasksToPoll.items():
-        task['taskError'] = False
+        task.pop('style', None)
         if "idleTime" not in task.keys():
             task['displayname'] = "{0} ({1}) : Данные не получены".format(
                 taskKey, task['displayname'])
-            task['taskError'] = True
+            if (pollStartTimeStamp - appStartTimeStamp) > \
+                    3 * max(task['period'], pollingPeriodSec):
+                task['style'] = 'rem'
+            else:
+                task['style'] = 'ign'
         else:
             idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
             task['displayname'] = "{0} ({1}) : {2} сек назад".format(
                 taskKey, task['displayname'], idleTime)
             if abs(idleTime) > \
                     3 * max(task['period'], pollingPeriodSec):
-                task['taskError'] = True
+                task['style'] = 'rem'
 
+
+# create box for every agent (controlblock)
+# agents like {agent:[tasks]}
+# taskstopoll -> pollResult
+def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
     agents = {}
     agentHasErrors = set()
     if tasksToPoll is not None:
@@ -123,9 +129,11 @@ def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult,poll
                         taskKey, "name": task['displayname']}
 
             # processing errors for tasks without timestamp and tasks with old timestamp
-            if task['taskError']:
-                taskData.update({"style": "rem"})
-                agentHasErrors.add(agentKey)
+            taskStyle=task.get('style', None)
+            if taskStyle is not None:
+                taskData.update({"style": taskStyle})
+                if taskStyle == 'rem':
+                    agentHasErrors.add(agentKey)
 
             curTasks += [taskData]
 
@@ -140,10 +148,18 @@ def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult,poll
             }]
 
     # sort taskdata for every agent
+    def sortTasks(t):
+        taskStyle=t.get('style', None)
+        if taskStyle == 'rem': 
+            res='0'
+        elif taskStyle == "ign":
+            res='1'
+        else:
+            res='2'
+        return res+t['name']
+
     for taskData in agents.values():
-        taskData.sort(
-            key=lambda t:
-            ("0" if "style" in t.keys() else "1") + t['name'])
+        taskData.sort(key=sortTasks)
 
     # add agents with errors to vPollresult
     resultWithErrors = [{
@@ -166,11 +182,13 @@ def makeServerPollResult(tasksToPoll, serverName, serverErrors, vPollResult,poll
     vPollResult += resultNoErrors
 
 
-def pollResultPostProcessing(vPollResult):
+def pollResultSort(vPollResult):
     # sort pollresults, make boxes with errors first
     vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['name'])
 
-    # calc errors percent in vPollresult
+
+def pollResultCalcProgress(vPollResult):
+    # calc errors percent in vPollresult (visual errorcount)
     for poll in vPollResult:
         if "error" in poll:
             count = len(poll['data'])

@@ -209,6 +209,8 @@ function updateBoxRecListCallback(boxes, boxesStatus, boxRec,updateNoInteractive
 					$(item).addClass("add")
 				}else if (tmp=="rem"){
 					$(item).addClass("rem")
+				}else if (tmp=="ign"){
+					$(item).addClass("ign")
 				}
 			}
 			$("#recordlist").append(item)

@@ -5,12 +5,7 @@ import sys
 from .models import Servers, Options
 from . import threadPollSubs as subs
 
-# pollResult like
-# [{"id":boxId, "name":BoxName, "error":someErrorText,
-#   "pollServer": ,data:boxTasks}]
-# boxTasks like: [{"id":recId,"name":recName,"style":"add/rem"}]
-
-
+# heartbeat main thread
 def threadPoll():
 
     if not hasattr(threadPoll, "pollResult"):
@@ -25,6 +20,8 @@ def threadPoll():
 
     while True:
         opt = Options.getOptionsObject()
+        # pollResult like [{"id":boxId, "name":BoxName, "error":someErrorText,
+        # "pollServer": ,data:boxTasks}]
         pollResult = []
         pollStartTimeStamp = int(time.time())
 
@@ -36,7 +33,7 @@ def threadPoll():
             serverDb = None
             # amqp connection to rabbit
             mqAmqpConnection = None
-            # credintials for access rabbit thhp api
+            # credintials for access rabbit http api
             mqHttpConf = None
 
             # oldtsks are used to get timestamp if it absent in current taskstopoll
@@ -45,46 +42,42 @@ def threadPoll():
 
             # query DB. Get Db connection and list of tasks for monitoring
             # serverConfig -> (serverDb,tasksToPoll)
-            # tasksToPoll like {taskKey: {"agentKey":"aaa", "period":10} }}
+            # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
-            # polling RabbitMQ. Get MQ connection. Add "idleTime" to tasksToPoll
+            # polling RabbitMQ. Get MQ connection. 
+            # Add "idleTime" to tasksToPoll
             # mqHttpConf is one of serverConfig['mq'] for later http api connections
-            if tasksToPoll is not None:
-                mqAmqpConnection, mqHttpConf = subs.pollMQ(
-                                                    serverConfig['mq'],
-                                                    server.name,
-                                                    opt["maxMsgTotal"],
-                                                    serverErrors,
-                                                    oldTasks,
-                                                    tasksToPoll)
+            mqAmqpConnection, mqHttpConf = subs.pollMQ(
+                                                serverConfig['mq'],
+                                                server.name,
+                                                opt["maxMsgTotal"],
+                                                serverErrors,
+                                                oldTasks,
+                                                tasksToPoll)
 
-                # tasksToPoll,serverErrors -> pollResult
-                subs.makePollResult()
-                tasksToPoll = None
+            # subs.sendHeartBeatTasks(tasksToPoll)
+            # subs.receiveHeartBeatTasks(tasksToPoll)
 
-                subs.runHeartBeatTasks(pollResult[server.name])
+            # add "style" field to tasksToPoll, modify "displayname"
+            # style == "rem" - error presents (red)
+            # style == "ign" - error presents, but ignored (gray)
+            subs.markTasks(tasksToPoll,pollStartTimeStamp,threadPoll.appStartTimeStamp,opt['pollingPeriodSec'])
 
-                subs.markTaskErrors(pollResult[server.name])
-
-                # dublicate task alarms to qos gui
-                # TODO: dublicate server alarms from serverErrors too
-                # if server.qosguialarm and serverDb and mqAmqpConnection:
-                #     subs.qosGuiAlarm(
-                #         tasksToPoll,
-                #         server.name,
-                #         serverDb,
-                #         mqAmqpConnection,
-                #         opt,
-                #         serverErrors)
-
-                subs.serverPostProcessing(pollResult[server.name])
-
-
+            # dublicate task alarms to qos gui
+            if server.qosguialarm and serverDb and mqAmqpConnection:
+                subs.qosGuiAlarm(
+                    tasksToPoll,
+                    server.name,
+                    serverDb,
+                    mqAmqpConnection,
+                    opt,
+                    serverErrors)
 
             # tasksToPoll,serverErrors -> pollResult
-            subs.makeServerPollResult(tasksToPoll, server.name, serverErrors, pollResult,
-                pollStartTimeStamp,threadPoll.appStartTimeStamp,opt['pollingPeriodSec'])
+            # grouping tasks to boxes by agentKey, also create +1 box for server errors
+            # then save this server's boxes to pollresult 
+            subs.makePollResult(tasksToPoll, server.name, serverErrors, pollResult)
 
             threadPoll.oldTasks[server.name] = tasksToPoll
             tasksToPoll = None
@@ -96,9 +89,12 @@ def threadPoll():
                 mqAmqpConnection.close()
         # end for server
 
+        subs.pollResultSort(pollResult)
+        subs.pollResultCalcProgress(pollResult)
         # poll completed, set pollResult accessible to others
-        subs.finalPostProcessing(pollResult) ****************
         threadPoll.pollResult = pollResult
+
+        # print(int(time.time()-threadPoll.pollTimeStamp), 'seconds cycle')
         threadPoll.pollTimeStamp = int(time.time())
 
         # time.sleep(5)

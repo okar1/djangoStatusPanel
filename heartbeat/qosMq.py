@@ -124,7 +124,7 @@ def sendQosGuiAlarms(errors, tasksToPoll, mqAmqpConnection, opt, originatorId):
 
     channel = mqAmqpConnection.channel()
     for taskKey, task in tasksToPoll.items():
-        action = "ACTIVATE" if task['taskError'] else "CLEAR"
+        action = "ACTIVATE" if task.get('style', None) == 'rem' else "CLEAR"
 
         # 0 - not published
         # 1 - published activate

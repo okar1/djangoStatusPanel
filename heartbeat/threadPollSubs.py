@@ -89,6 +89,7 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, oldTasks, vTasksToP
     vServerErrors += formatErrors(errors, serverName, pollName)
     return (mqAmqpConnection, mqHttpConf)
 
+
 def markTasks(tasksToPoll, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
@@ -129,7 +130,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
                         taskKey, "name": task['displayname']}
 
             # processing errors for tasks without timestamp and tasks with old timestamp
-            taskStyle=task.get('style', None)
+            taskStyle = task.get('style', None)
             if taskStyle is not None:
                 taskData.update({"style": taskStyle})
                 if taskStyle == 'rem':
@@ -149,13 +150,13 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
 
     # sort taskdata for every agent
     def sortTasks(t):
-        taskStyle=t.get('style', None)
-        if taskStyle == 'rem': 
-            res='0'
+        taskStyle = t.get('style', None)
+        if taskStyle == 'rem':
+            res = '0'
         elif taskStyle == "ign":
-            res='1'
+            res = '1'
         else:
-            res='2'
+            res = '2'
         return res+t['name']
 
     for taskData in agents.values():

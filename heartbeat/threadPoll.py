@@ -5,6 +5,7 @@ import sys
 from .models import Servers, Options
 from . import threadPollSubs as subs
 
+
 # heartbeat main thread
 def threadPoll():
 
@@ -45,7 +46,7 @@ def threadPoll():
             # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
-            # polling RabbitMQ. Get MQ connection. 
+            # polling RabbitMQ. Get MQ connection.
             # Add "idleTime" to tasksToPoll
             # mqHttpConf is one of serverConfig['mq'] for later http api connections
             mqAmqpConnection, mqHttpConf = subs.pollMQ(
@@ -62,7 +63,11 @@ def threadPoll():
             # add "style" field to tasksToPoll, modify "displayname"
             # style == "rem" - error presents (red)
             # style == "ign" - error presents, but ignored (gray)
-            subs.markTasks(tasksToPoll,pollStartTimeStamp,threadPoll.appStartTimeStamp,opt['pollingPeriodSec'])
+            subs.markTasks(
+                tasksToPoll,
+                pollStartTimeStamp,
+                threadPoll.appStartTimeStamp,
+                opt['pollingPeriodSec'])
 
             # dublicate task alarms to qos gui
             if server.qosguialarm and serverDb and mqAmqpConnection:
@@ -76,7 +81,7 @@ def threadPoll():
 
             # tasksToPoll,serverErrors -> pollResult
             # grouping tasks to boxes by agentKey, also create +1 box for server errors
-            # then save this server's boxes to pollresult 
+            # then save this server's boxes to pollresult
             subs.makePollResult(tasksToPoll, server.name, serverErrors, pollResult)
 
             threadPoll.oldTasks[server.name] = tasksToPoll

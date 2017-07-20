@@ -134,7 +134,7 @@ class Servers(models.Model):
     def __str__(self):
         return self.name
 
-
+# visible servergroup to show set of servers in gui
 class ServerGroups(models.Model):
     name = models.CharField("Имя", max_length=255,
                             blank=False, null=False, editable=True)
@@ -145,25 +145,30 @@ class ServerGroups(models.Model):
         verbose_name = 'группа серверов'
         verbose_name_plural = "группы серверов"
 
-    def __str__(self)::
+    def __str__(self):
         return self.name
 
-
+# heartbeat agentkey list. 
+# If equals some of qos agentkeys - than heartbeat records and qos records are united in single box on gui
+# if heartbeat agentkey not equals none of qos agentkey - than new box for heartbeat agent will be created
 class Hosts(models.Model):
     agentkey = models.CharField("Ключ БК", max_length=255, blank=False, null=False, editable=True)
-    comment = models.CharField("Комментарий", max_length=255, blank=False, null=False, editable=True)
+    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
+    comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True)
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
         verbose_name = 'блок контроля'
         verbose_name_plural = 'блоки контроля (hosts)'
 
     def __str__(self):
-        return self.name
+        return self.agentkey
 
 
-class PollItems(models.Model):
+# settings of heartbeat data collectors 
+class Items(models.Model):
     name = models.CharField("Имя", max_length=255, blank=False, null=False, editable=True)
-    type_ = models.CharField("Тип опроса", max_length=255, blank=False, null=False, editable=True)
+    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
+    type = models.CharField("Тип опроса", max_length=255, blank=False, null=False, editable=True)
     unit = models.CharField("Единица измерения", max_length=255, blank=False, null=False, editable=True)
     config = models.TextField(null=False, default="")
 
@@ -174,30 +179,31 @@ class PollItems(models.Model):
     def __str__(self):
         return self.name
 
+# alarm treshholds for items. Each item can contain 0 or more triggers
 class Triggers(models.Model):
-    pollitem = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
+    item = models.ForeignKey(Items,verbose_name="Сборщик данных", blank=False, null=False, editable=True)
     # = >= <= != < >
-    type_ = models.CharField("Тип порога", max_length=2, blank=False, null=False, editable=True)
+    operator = models.CharField("Тип порога", max_length=2, blank=False, null=False, editable=True)
     value = models.CharField("Значение порога", max_length=255, blank=False, null=False, editable=True)
+    severity = models.CharField("Важность", max_length=20, blank=False, null=False, editable=True)
 
     class Meta:
         verbose_name = 'порог оповещения'
         verbose_name_plural = 'пороги оповещения (triggers)'
 
-    def __str__(self):
-        return self.name
-
-
-# Templates, templateGroups <-- --> agents, agentGroups mapping
-class Templates(models.Model):
+# hosts, items --> server mappings
+# each server can contain 0 or more mappings
+class TaskSets(models.Model):
+    #related_name="membership_invites", on_delete=models.CASCADE
     name = models.CharField("Имя", max_length=255, blank=False, null=False, editable=True)
-    server = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
-    hosts = models.ManyToManyField(AgentGroups, blank=True) #related_name="membership_invites",
-    pollitems = models.ManyToManyField(PollTemplates, blank=True ) #on_delete=models.CASCADE
+    server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True)
+    hosts = models.ManyToManyField(Hosts, verbose_name="Блоки контроля", blank=True, editable=True) 
+    items = models.ManyToManyField(Items, verbose_name="Сборщики данных", blank=True, editable=True )
+    enabled = models.BooleanField("Включена", blank=False, null=False, editable=True, default=True)
 
     class Meta:
-        verbose_name = 'шаблон опроса'
-        verbose_name_plural = 'шаблоны опроса (templates)'
+        verbose_name = 'Задача сбора данных'
+        verbose_name_plural = 'Задачи сбора данных'
 
     def __str__(self):
         return self.name

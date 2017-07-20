@@ -98,3 +98,28 @@ def getOriginatorIdForAlertType(dbConnection, alertType):
 
     except Exception as e:
         return(str(e), None)
+
+
+# select  
+# Distinct ON (hosts.id,items.id)
+# items.id,
+# items.name,
+# items.type,
+# items.unit,
+# items.config,
+# hosts.agentkey
+# from
+# heartbeat_tasksets as "ts",
+# heartbeat_hosts as "hosts",
+# heartbeat_items as "items",
+# heartbeat_tasksets_hosts as "ts_hosts",
+# heartbeat_tasksets_items as "ts_items"
+# where 
+# ts.server_id=1 and 
+# ts_hosts.tasksets_id=ts.id and
+# ts_hosts.hosts_id=hosts.id and
+# ts_items.tasksets_id=ts.id and
+# ts_items.items_id=items.id and 
+# ts.enabled=true and
+# hosts.enabled=true and
+# items.enabled=true

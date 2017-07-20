@@ -204,7 +204,6 @@ class TaskSets(models.Model):
     class Meta:
         verbose_name = 'Задача сбора данных'
         verbose_name_plural = 'Задачи сбора данных'
-
     def __str__(self):
         return self.name
 

@@ -46,28 +46,29 @@ def threadPoll():
             # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
-            # polling RabbitMQ. Get MQ connection.
-            # Add "idleTime" to tasksToPoll
-            # mqHttpConf is one of serverConfig['mq'] for later http api connections
-            mqAmqpConnection, mqHttpConf = subs.pollMQ(
-                                                serverConfig['mq'],
-                                                server.name,
-                                                opt["maxMsgTotal"],
-                                                serverErrors,
-                                                oldTasks,
-                                                tasksToPoll)
+            if tasksToPoll:
+                # polling RabbitMQ. Get MQ connection.
+                # Add "idleTime" to tasksToPoll
+                # mqHttpConf is one of serverConfig['mq'] for later http api connections
+                mqAmqpConnection, mqHttpConf = subs.pollMQ(
+                                                    serverConfig['mq'],
+                                                    server.name,
+                                                    opt["maxMsgTotal"],
+                                                    serverErrors,
+                                                    oldTasks,
+                                                    tasksToPoll)
 
-            # subs.sendHeartBeatTasks(tasksToPoll)
-            # subs.receiveHeartBeatTasks(tasksToPoll)
+                # subs.sendHeartBeatTasks(tasksToPoll)
+                # subs.receiveHeartBeatTasks(tasksToPoll)
 
-            # add "style" field to tasksToPoll, modify "displayname"
-            # style == "rem" - error presents (red)
-            # style == "ign" - error presents, but ignored (gray)
-            subs.markTasks(
-                tasksToPoll,
-                pollStartTimeStamp,
-                threadPoll.appStartTimeStamp,
-                opt['pollingPeriodSec'])
+                # add "style" field to tasksToPoll, modify "displayname"
+                # style == "rem" - error presents (red)
+                # style == "ign" - error presents, but ignored (gray)
+                subs.markTasks(
+                    tasksToPoll,
+                    pollStartTimeStamp,
+                    threadPoll.appStartTimeStamp,
+                    opt['pollingPeriodSec'])
 
             # dublicate task alarms to qos gui
             if server.qosguialarm and serverDb and mqAmqpConnection:

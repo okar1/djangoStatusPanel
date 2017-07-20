@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from django.contrib import admin
-from .models import Servers, Options, ServerGroups
+from .models import Servers, Options, ServerGroups, Hosts, Items,TaskSets
 import json
 
 # TODO now host passwords are transfered to admin form unencrypted
@@ -146,5 +146,29 @@ class OptionsAdmin(admin.ModelAdmin):
     # form=RulesForm
     # list_display = ['rule', 'comment']
     fields = ['name', 'value']
+
+
+@admin.register(Hosts)
+class HostsAdmin(admin.ModelAdmin):
+    pass
+    # form=RulesForm
+    # list_display = ['rule', 'comment']
+    # fields = ['name', 'value']
+
+
+@admin.register(Items)
+class ItemsAdmin(admin.ModelAdmin):
+    pass
+    # form=RulesForm
+    # list_display = ['rule', 'comment']
+    # fields = ['name', 'value']
+
+
+@admin.register(TaskSets)
+class TaskSetsAdmin(admin.ModelAdmin):
+    pass
+    # form=RulesForm
+    # list_display = ['rule', 'comment']
+    # fields = ['name', 'value']
 
 # admin.site.register(ServerComponents, ServerComponentsAdmin)

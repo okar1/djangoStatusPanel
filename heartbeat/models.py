@@ -129,7 +129,7 @@ class Servers(models.Model):
 
     class Meta:
         verbose_name = 'сервер'
-        verbose_name_plural = "серверы"
+        verbose_name_plural = "qos - серверы"
 
     def __str__(self):
         return self.name
@@ -143,7 +143,7 @@ class ServerGroups(models.Model):
 
     class Meta:
         verbose_name = 'группа серверов'
-        verbose_name_plural = "группы серверов"
+        verbose_name_plural = "qos - группы серверов"
 
     def __str__(self):
         return self.name
@@ -158,7 +158,7 @@ class Hosts(models.Model):
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
         verbose_name = 'блок контроля'
-        verbose_name_plural = 'блоки контроля (hosts)'
+        verbose_name_plural = 'heartbeat - блоки контроля (hosts)'
 
     def __str__(self):
         return self.agentkey
@@ -174,7 +174,7 @@ class Items(models.Model):
 
     class Meta:
         verbose_name = 'сборщик данных'
-        verbose_name_plural = 'сборщики данных (items)'
+        verbose_name_plural = 'heartbeat - сборщики данных (items)'
 
     def __str__(self):
         return self.name
@@ -189,7 +189,7 @@ class Triggers(models.Model):
 
     class Meta:
         verbose_name = 'порог оповещения'
-        verbose_name_plural = 'пороги оповещения (triggers)'
+        verbose_name_plural = 'heartbeat - пороги оповещения (triggers)'
 
 # hosts, items --> server mappings
 # each server can contain 0 or more mappings
@@ -202,8 +202,8 @@ class TaskSets(models.Model):
     enabled = models.BooleanField("Включена", blank=False, null=False, editable=True, default=True)
 
     class Meta:
-        verbose_name = 'Задача сбора данных'
-        verbose_name_plural = 'Задачи сбора данных'
+        verbose_name = 'задача сбора данных'
+        verbose_name_plural = 'heartbeat - задачи сбора данных'
     def __str__(self):
         return self.name
 

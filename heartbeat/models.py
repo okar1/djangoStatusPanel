@@ -201,6 +201,56 @@ class TaskSets(models.Model):
     items = models.ManyToManyField(Items, verbose_name="Сборщики данных", blank=True, editable=True )
     enabled = models.BooleanField("Включена", blank=False, null=False, editable=True, default=True)
 
+    
+    # if item is disabled - all its tasks willl be disabled
+    # if agent is disabled - all its tasks is disabled
+    #   if taskset is disabled - all itas tasks are disabled,
+    #       but disabled tasks in taskset can be overlapped by other tasksets.
+    #       in this case such tasks will be enabled
+    def getHeartbeatTasks(server,pollingPeriodSec):
+        sql="""select  
+            Distinct ON (hosts.id,items.id,enabled)
+            items.id || '-' || hosts.id as "id",
+            items.id as "itemid",
+            items.name,
+            items.type,
+            items.unit,
+            items.config,
+            hosts.agentkey,
+            bool_or(ts.enabled and hosts.enabled and items.enabled) as "enabled"
+            from
+            heartbeat_tasksets as "ts",
+            heartbeat_hosts as "hosts",
+            heartbeat_items as "items",
+            heartbeat_tasksets_hosts as "ts_hosts",
+            heartbeat_tasksets_items as "ts_items"
+            where 
+            ts.server_id=1 and 
+            ts_hosts.tasksets_id=ts.id and
+            ts_hosts.hosts_id=hosts.id and
+            ts_items.tasksets_id=ts.id and
+            ts_items.items_id=items.id
+            group by items.id,hosts.id""" \
+            .format(serverid=str(int(server.id)))
+        
+        tasks=TaskSets.objects.raw(sql)
+        # taskKey=agentkey+'.Heartbeat'+'.'+task.itemid
+        return {
+            task.agentkey + '.Heartbeat.' + str(task.itemid): {
+                "agentKey":task.agentkey,
+                "module":"heartbeat",
+                "displayname":task.name,
+                "type":task.type,
+                "unit":task.unit,
+                "config":json.loads(task.config),
+                "period":pollingPeriodSec,
+                "enabled":task.enabled}
+                for task in tasks
+        }
+
+
+
+
     class Meta:
         verbose_name = 'задача сбора данных'
         verbose_name_plural = 'heartbeat - задачи сбора данных'

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import requests
 import json
-from datetime import datetime
 import pika
 import time
 
@@ -31,8 +30,8 @@ def getMqConnection(mqConf):
 
 # poll all rabbitmq instances for one cluster
 # calculate idletime for each task in tasks
-# store result in tasks[taskKey]["idleTime"]
-def pollIddleTime(mqAmqpConnection, vErrors, vTasksToPoll, oldTasks):
+# store result in tasks[taskKey]["timestamp"]
+def pollTimeStamp(mqAmqpConnection, vErrors, vTasksToPoll):
 
     amqpLink = mqAmqpConnection.channel()
     mqMessages = [""]
@@ -97,23 +96,49 @@ def pollIddleTime(mqAmqpConnection, vErrors, vTasksToPoll, oldTasks):
         # endfor messages in current request
     # endwhile messages in rabbit queue
 
-    # add timestamp from prev poll if absent
-    for taskKey, task in vTasksToPoll.items():
-        if taskKey in oldTasks.keys():
-            if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
-                task['timeStamp'] = oldTasks[taskKey]['timeStamp']
-            if ('alarmPublishStatus' not in vTasksToPoll.keys()) and \
-                    ('alarmPublishStatus' in oldTasks[taskKey].keys()):
-                task['alarmPublishStatus'] = oldTasks[taskKey]['alarmPublishStatus']
 
-    # calculate iddle time
-    for taskKey, task in vTasksToPoll.items():
-        if 'timeStamp' in task.keys():
-            # "20170610151013"
-            resultDateTime = datetime.strptime(
-                task['timeStamp'], "%Y%m%d%H%M%S")
-            utcNowDateTime = datetime.utcnow()
-            task["idleTime"] = utcNowDateTime - resultDateTime
+def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll):
+    if not mqAmqpConnection:
+        return ['Соединение с RabbitMQ не установлено']
+
+    mqExchange='heartbeatOwnTasks'
+    channel = mqAmqpConnection.channel()
+    for taskKey, task in tasksToPoll.items():
+        
+        # process only heartbeat tasks
+        if task.get('module',None)!='heartbeat':
+            continue
+
+        # process only enabled tasks
+        if not task.get('enabled',False):
+            continue
+
+        msgRoutingKey=task['agentKey']
+        msgBody=task['config'].copy()
+        msgBody.update({'type':task['type']})
+
+        channel.basic_publish(
+            exchange=mqExchange,
+            routing_key=msgRoutingKey,
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # make message persistent
+                content_type='application/json',
+                content_encoding='UTF-8',
+                priority=0,
+                expiration="86400000",
+                headers={}),
+            body=str(msgBody)
+        )
+
+    errors=[]
+    return errors
+
+
+def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll):
+    if not mqAmqpConnection:
+        return ['Соединение с RabbitMQ не установлено']
+    errors=[]
+    return errors
 
 
 # send alarms to main GUI interface of server
@@ -124,6 +149,10 @@ def sendQosGuiAlarms(errors, tasksToPoll, mqAmqpConnection, opt, originatorId):
 
     channel = mqAmqpConnection.channel()
     for taskKey, task in tasksToPoll.items():
+        
+        if task.get('module',None)=='heartbeat':
+            continue
+
         action = "ACTIVATE" if task.get('style', None) == 'rem' else "CLEAR"
 
         # 0 - not published

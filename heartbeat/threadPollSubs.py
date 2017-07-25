@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from datetime import datetime
 from . import qosDb
 from . import qosMq
 
@@ -51,7 +52,7 @@ def pollDb(dbConfig, serverName, vServerErrors):
 
 
 # mqConfig -> (mqAmqpConnection, mqHttpConf)
-def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, oldTasks, vTasksToPoll):
+def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
     pollName = "RabbitMQ"
     errors = []
     mqConnections = []
@@ -82,32 +83,70 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, oldTasks, vTasksToP
         if msgTotal > maxMsgTotal:
             errors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
 
-        # add iddleTime to tasksToPoll
-        qosMq.pollIddleTime(mqAmqpConnection, errors, vTasksToPoll, oldTasks)
+        # calc timestamp to tasksToPoll
+        qosMq.pollTimeStamp(mqAmqpConnection, errors, vTasksToPoll)
     # endif
 
     vServerErrors += formatErrors(errors, serverName, pollName)
     return (mqAmqpConnection, mqHttpConf)
 
 
+# send heartbeat tasks request to rabbitmq exchange
+def sendHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
+    errors=qosMq.sendHeartBeatTasks(mqAmqpConnection,tasksToPoll)
+    serverErrors += formatErrors(errors, serverName, "hbSender")
+
+# receive heartbeat tasks request from rabbitmq queue
+def receiveHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
+    errors=qosMq.receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll)
+    serverErrors += formatErrors(errors, serverName, "hbReceiver")
+
+
+def calcIddleTime(vTasksToPoll, oldTasks):
+    # add timestamp from prev poll if absent
+    for taskKey, task in vTasksToPoll.items():
+        if taskKey in oldTasks.keys():
+            if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
+                task['timeStamp'] = oldTasks[taskKey]['timeStamp']
+            if ('alarmPublishStatus' not in vTasksToPoll.keys()) and \
+                    ('alarmPublishStatus' in oldTasks[taskKey].keys()):
+                task['alarmPublishStatus'] = oldTasks[taskKey]['alarmPublishStatus']
+
+    # calculate iddle time
+    for taskKey, task in vTasksToPoll.items():
+        if 'timeStamp' in task.keys():
+            # "20170610151013"
+            resultDateTime = datetime.strptime(
+                task['timeStamp'], "%Y%m%d%H%M%S")
+            utcNowDateTime = datetime.utcnow()
+            task["idleTime"] = utcNowDateTime - resultDateTime
+
+
 def markTasks(tasksToPoll, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
-        if "idleTime" not in task.keys():
-            task['displayname'] = "{0} ({1}) : Данные не получены".format(
+        
+        if not task.get('enabled',True):
+            task['displayname'] = "{0} ({1}) : Задача отключена".format(
                 taskKey, task['displayname'])
-            if (pollStartTimeStamp - appStartTimeStamp) > \
-                    3 * max(task['period'], pollingPeriodSec):
-                task['style'] = 'rem'
-            else:
-                task['style'] = 'ign'
+            task['style'] = 'ign'
         else:
-            idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
-            task['displayname'] = "{0} ({1}) : {2} сек назад".format(
-                taskKey, task['displayname'], idleTime)
-            if abs(idleTime) > \
-                    3 * max(task['period'], pollingPeriodSec):
-                task['style'] = 'rem'
+
+            if "idleTime" not in task.keys():
+                task['displayname'] = "{0} ({1}) : Данные не получены".format(
+                    taskKey, task['displayname'])
+                if (pollStartTimeStamp - appStartTimeStamp) > \
+                        3 * max(task['period'], pollingPeriodSec):
+                    task['style'] = 'rem'
+                else:
+                    task['style'] = 'ign'
+            else:
+                idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
+                task['displayname'] = "{0} ({1}) : {2} сек назад".format(
+                    taskKey, task['displayname'], idleTime)
+                if abs(idleTime) > \
+                        3 * max(task['period'], pollingPeriodSec):
+                    task['style'] = 'rem'
 
 
 # create box for every agent (controlblock)

@@ -2,9 +2,8 @@
 import time
 import threading
 import sys
-from .models import Servers, Options
+from .models import Servers, Options, TaskSets
 from . import threadPollSubs as subs
-
 
 # heartbeat main thread
 def threadPoll():
@@ -46,29 +45,38 @@ def threadPoll():
             # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
-            if tasksToPoll:
-                # polling RabbitMQ. Get MQ connection.
-                # Add "idleTime" to tasksToPoll
-                # mqHttpConf is one of serverConfig['mq'] for later http api connections
-                mqAmqpConnection, mqHttpConf = subs.pollMQ(
-                                                    serverConfig['mq'],
-                                                    server.name,
-                                                    opt["maxMsgTotal"],
-                                                    serverErrors,
-                                                    oldTasks,
-                                                    tasksToPoll)
+            # polling RabbitMQ. Get MQ connection.
+            # Add "idleTime" to tasksToPoll
+            # mqHttpConf is one of serverConfig['mq'] for later http api connections
+            mqAmqpConnection, mqHttpConf = subs.pollMQ(
+                                                serverConfig['mq'],
+                                                server.name,
+                                                opt["maxMsgTotal"],
+                                                serverErrors,
+                                                tasksToPoll)
 
-                # subs.sendHeartBeatTasks(tasksToPoll)
-                # subs.receiveHeartBeatTasks(tasksToPoll)
+            # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
+            tasksToPoll.update(
+                TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
+            )
 
-                # add "style" field to tasksToPoll, modify "displayname"
-                # style == "rem" - error presents (red)
-                # style == "ign" - error presents, but ignored (gray)
-                subs.markTasks(
-                    tasksToPoll,
-                    pollStartTimeStamp,
-                    threadPoll.appStartTimeStamp,
-                    opt['pollingPeriodSec'])
+            # send heartbeat tasks request to rabbitmq exchange
+            subs.sendHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
+            
+            # receive heartbeat tasks request from rabbitmq queue
+            subs.receiveHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
+
+            # calc timestamp-->iddleTime for tasksToPoll
+            subs.calcIddleTime(tasksToPoll, oldTasks)
+
+            # add "style" field to tasksToPoll, modify "displayname"
+            # style == "rem" - error presents (red)
+            # style == "ign" - error presents, but ignored (gray)
+            subs.markTasks(
+                tasksToPoll,
+                pollStartTimeStamp,
+                threadPoll.appStartTimeStamp,
+                opt['pollingPeriodSec'])
 
             # dublicate task alarms to qos gui
             if server.qosguialarm and serverDb and mqAmqpConnection:

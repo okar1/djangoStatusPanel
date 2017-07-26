@@ -41,7 +41,7 @@ def getTasks(dbConnection):
     # get period mproperty (no filter need), period is string
 
     error = None
-    result = []
+    result = {}
 
     sql = """select magent.entity_key as "agentkey",
     magenttask.entity_key as "taskkey",

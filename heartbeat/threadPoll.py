@@ -66,8 +66,11 @@ def threadPoll():
             # receive heartbeat tasks request from rabbitmq queue
             subs.receiveHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
 
+            # use some parameters from oldTasks if it absent in taskstopoll
+            subs.useOldParameters(tasksToPoll, oldTasks)            
+
             # calc timestamp-->iddleTime for tasksToPoll
-            subs.calcIddleTime(tasksToPoll, oldTasks)
+            subs.calcIddleTime(tasksToPoll)
 
             # add "style" field to tasksToPoll, modify "displayname"
             # style == "rem" - error presents (red)
@@ -82,6 +85,7 @@ def threadPoll():
             if server.qosguialarm and serverDb and mqAmqpConnection:
                 subs.qosGuiAlarm(
                     tasksToPoll,
+                    oldTasks,
                     server.name,
                     serverDb,
                     mqAmqpConnection,

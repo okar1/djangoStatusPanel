@@ -3,6 +3,7 @@ from datetime import datetime
 from . import qosDb
 from . import qosMq
 
+timeStampFormat="%Y%m%d%H%M%S"
 
 def formatErrors(errors, serverName, pollName):
     return [{
@@ -84,7 +85,8 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
             errors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
 
         # calc timestamp to tasksToPoll
-        qosMq.pollTimeStamp(mqAmqpConnection, errors, vTasksToPoll)
+        if vTasksToPoll:
+            qosMq.pollTimeStamp(mqAmqpConnection, errors, vTasksToPoll)
     # endif
 
     vServerErrors += formatErrors(errors, serverName, pollName)
@@ -102,22 +104,23 @@ def receiveHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
     serverErrors += formatErrors(errors, serverName, "hbReceiver")
 
 
-def calcIddleTime(vTasksToPoll, oldTasks):
-    # add timestamp from prev poll if absent
+def useOldParameters(vTasksToPoll, oldTasks):
+    # use some parameters from oldTasks if it absent in taskstopoll
     for taskKey, task in vTasksToPoll.items():
         if taskKey in oldTasks.keys():
             if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
-            if ('alarmPublishStatus' not in vTasksToPoll.keys()) and \
-                    ('alarmPublishStatus' in oldTasks[taskKey].keys()):
-                task['alarmPublishStatus'] = oldTasks[taskKey]['alarmPublishStatus']
+            if 'value' not in task.keys() and ('value' in oldTasks[taskKey].keys()):
+                task['value'] = oldTasks[taskKey]['value']
 
+
+def calcIddleTime(vTasksToPoll):
     # calculate iddle time
     for taskKey, task in vTasksToPoll.items():
         if 'timeStamp' in task.keys():
             # "20170610151013"
             resultDateTime = datetime.strptime(
-                task['timeStamp'], "%Y%m%d%H%M%S")
+                task['timeStamp'], timeStampFormat)
             utcNowDateTime = datetime.utcnow()
             task["idleTime"] = utcNowDateTime - resultDateTime
 
@@ -131,7 +134,6 @@ def markTasks(tasksToPoll, pollStartTimeStamp, appStartTimeStamp, pollingPeriodS
                 taskKey, task['displayname'])
             task['style'] = 'ign'
         else:
-
             if "idleTime" not in task.keys():
                 task['displayname'] = "{0} ({1}) : Данные не получены".format(
                     taskKey, task['displayname'])
@@ -147,6 +149,11 @@ def markTasks(tasksToPoll, pollStartTimeStamp, appStartTimeStamp, pollingPeriodS
                 if abs(idleTime) > \
                         3 * max(task['period'], pollingPeriodSec):
                     task['style'] = 'rem'
+
+                if 'unit' in task.keys() and 'value' in task.keys():
+                    unit=task['unit']
+                    value=task['value']
+                    task['displayname']+=" получено значение "+str(value)+" "+unit
 
 
 # create box for every agent (controlblock)
@@ -245,10 +252,17 @@ def pollResultCalcProgress(vPollResult):
                     errHead, errCount, count)
 
 
-def qosGuiAlarm(tasksToPoll, serverName, serverDb, mqAmqpConnection, opt, vServerErrors):
+def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqAmqpConnection, opt, vServerErrors):
     # dublicate errors "no task data" to qos server gui
     pollName = "QosGuiAlarm"
     errors = []
+
+    # add alarmPublishStatus from prev poll if absent
+    for taskKey, task in tasksToPoll.items():
+        if taskKey in oldTasks.keys():
+            if ('alarmPublishStatus' not in tasksToPoll.keys()) and \
+                    ('alarmPublishStatus' in oldTasks[taskKey].keys()):
+                task['alarmPublishStatus'] = oldTasks[taskKey]['alarmPublishStatus']
 
     # get originatorID - service integer number to send alarm
     e, originatorId = qosDb.getOriginatorIdForAlertType(

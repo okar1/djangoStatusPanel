@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-amqpPort = 5672
+import requests
+import pika
+import json
+from datetime import datetime
 
+amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
-hbOwnExchange='heartbeatAgentRequest'
-hbOwnQueue='heartbeatAgentReply'
+
 
 # mqconfig --> (msgTotal, mqConnection)
-def getMqConnection(mqConf):
+def getMqConnection(mqConf,vErrors,maxMsgTotal):
 
     # try to connect via http api
     req = requests.get('http://{0}:{1}/api/overview'.format(
@@ -15,6 +18,10 @@ def getMqConnection(mqConf):
     # get total number of messages on rabbitMQ
     msgTotal = req.json()['queue_totals']['messages']
 
+    # check if too many messages on rabbitMQ
+    if msgTotal > maxMsgTotal:
+        vErrors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
+
     # try to connect via amqp
     amqpLink = pika.BlockingConnection(
         pika.ConnectionParameters(
@@ -22,9 +29,9 @@ def getMqConnection(mqConf):
             amqpPort,
             '/',
             pika.PlainCredentials(mqConf["user"], mqConf["pwd"])))
-    return (msgTotal, amqpLink)
+    return amqpLink
 
-def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll):
+def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange):
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
     
@@ -34,7 +41,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll):
     channel = mqAmqpConnection.channel()
 
     try:
-        channel.exchange_declare(exchange=hbOwnExchange, exchange_type='topic')
+        channel.exchange_declare(exchange=sendToExchange, exchange_type='topic')
     except Exception as e:
         errors+= [str(e)]
         return errors
@@ -54,7 +61,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll):
         
         msgHeaders={'key':taskKey,'type':task['type'],'timestamp':nowDateTime}
         channel.basic_publish(
-            exchange=hbOwnExchange,
+            exchange=sendToExchange,
             routing_key=msgRoutingKey,
             properties=pika.BasicProperties(
                 delivery_mode=2,  # make message persistent
@@ -69,19 +76,26 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll):
     return errors
 
 
-def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll):
+def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue):
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
     vErrors=[]
 
-    amqpLink = mqAmqpConnection.channel()
+    channel = mqAmqpConnection.channel()
+
+    try:
+        channel.queue_declare(queue=receiveFromQueue, durable=True,arguments={'x-message-ttl':1800000})
+    except Exception as e:
+        vErrors+= [str(e)]
+        return vErrors
+
     mqMessages = [""]
     while len(mqMessages) > 0:
 
         # connect and check errors (amqp)
         getOk = None
         try:
-            getOk, *mqMessages = amqpLink.basic_get(hbOwnQueue, no_ack=True)
+            getOk, *mqMessages = channel.basic_get(receiveFromQueue, no_ack=True)
         except Exception as e:
             vErrors += [str(e)]
             return vErrors
@@ -108,12 +122,10 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll):
                 continue
 
             # parse message payload
+            taskValue=None
             try:
                 mData = json.loads((msg[1]).decode('utf-8'))
-                a=random.random()
-                if a>0.3:
-                    continue
-                mData.update({'value':random.choice(([0,1,2,3,4,5,6,7,8,9]))})
+                # mData['value']=777
                 taskValue=mData['value']
             except Exception as e:
                 vErrors += ['Ошибка обработки сообщения: неверное содержимое.']
@@ -124,7 +136,8 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll):
                 return vErrors
             
             tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
-            tasksToPoll[taskKey]['value']=taskValue
+            if taskValue is not None:
+                tasksToPoll[taskKey]['value']=taskValue
                         
         # endfor messages in current request
     # endwhile messages in rabbit queue

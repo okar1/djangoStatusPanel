@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
+import json
+import pika
+import time
 from datetime import datetime
 from . import qosDb
-from . import qosMq
+from . import heartbeatAgentLib
 
+
+sendToExchange='heartbeatAgentRequest'
+receiveFromQueue='heartbeatAgentReply'
+heartbeatQueue = 'heartbeat'
 timeStampFormat="%Y%m%d%H%M%S"
 
 def formatErrors(errors, serverName, pollName):
@@ -57,11 +64,10 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
     pollName = "RabbitMQ"
     errors = []
     mqConnections = []
-    msgTotal = 0
 
     for mqConf in mqConfig:
         try:
-            msgTotal, amqpLink = qosMq.getMqConnection(mqConf)
+            amqpLink = heartbeatAgentLib.getMqConnection(mqConf,errors,maxMsgTotal)
         except Exception as e:
             errors += [str(e)]
         else:
@@ -71,23 +77,96 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
     mqAmqpConnection = None
     mqHttpConf = None
 
-    if mqConnections:
-        # close all connections but first
-        for i in range(1, len(mqConnections)):
-            mqConnections[i][1].close()
+    if not mqConnections:
+        # (none, none)
+        return (mqAmqpConnection, mqHttpConf)
 
-        # use first connection in later tasks
-        mqHttpConf = mqConnections[0][0]
-        mqAmqpConnection = mqConnections[0][1]
+    # close all connections but first
+    for i in range(1, len(mqConnections)):
+        mqConnections[i][1].close()
 
-        # check if too many messages on rabbitMQ
-        if msgTotal > maxMsgTotal:
-            errors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
+    # use first connection in later tasks
+    mqHttpConf = mqConnections[0][0]
+    mqAmqpConnection = mqConnections[0][1]
 
-        # calc timestamp to tasksToPoll
-        if vTasksToPoll:
-            qosMq.pollTimeStamp(mqAmqpConnection, errors, vTasksToPoll)
-    # endif
+    if not vTasksToPoll:
+        return (mqAmqpConnection, mqHttpConf)
+
+    # poll all rabbitmq instances for one cluster
+    # calculate idletime for each task in tasks
+    # store result in tasks[taskKey]["timestamp"]
+    amqpLink = mqAmqpConnection.channel()
+    mqMessages = [""]
+
+    try:
+        amqpLink.queue_declare(queue=heartbeatQueue, durable=True,arguments={'x-message-ttl':1800000})
+    except Exception as e:
+        errors+= [str(e)]
+        vServerErrors += formatErrors(errors, serverName, pollName)
+        return (mqAmqpConnection, mqHttpConf)
+
+    while len(mqMessages) > 0:
+
+        # connect and check errors (amqp)
+        getOk = None
+        try:
+            getOk, *mqMessages = amqpLink.basic_get(heartbeatQueue, no_ack=True)
+        except Exception as e:
+            errors += [str(e)]
+            break
+
+        if getOk:
+            if mqMessages[0].content_type != 'application/json':
+                errors += ["Неверный тип данных " + mqMessages[0].content_type]
+                break
+            mqMessages = [mqMessages]
+        else:
+            mqMessages = []
+
+        # now we have list of mqMessages
+        for msg in mqMessages:
+
+            msgType = ""
+            try:
+                msgType = msg[0].headers['__TypeId__']
+            except Exception as e:
+                errStr = "Ошибка обработки сообщения: нет информации о типе."
+                if errStr not in errors:
+                    errors += [errStr]
+                continue
+
+            # parse message payload
+            try:
+                mData = json.loads((msg[1]).decode('utf-8'))
+                taskKey = mData['taskKey']
+                if taskKey not in vTasksToPoll.keys():
+                    errors += ["Задача " + taskKey + " не зарегистрирована в БД"]
+                    continue
+
+                if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
+
+                    taskResults = mData['results']
+                    for tr in taskResults:
+                        # if result has any parameters - store min task
+                        # idletime in vTasksToPoll
+                        if len(tr['parameters'].keys()) > 0:
+                            vTasksToPoll[taskKey]['timeStamp'] = tr['resultDateTime']
+
+                elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
+                    if len(mData['TSStructure']) > 0:
+                        vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
+                else:
+                    errStr = "Неизвестный тип сообщения: " + msgType
+                    if errStr not in errors:
+                        errors += [errStr]
+
+            except Exception as e:
+                errors += [str(e)]
+                vServerErrors += formatErrors(errors, serverName, pollName)
+                return (mqAmqpConnection, mqHttpConf)
+
+        # endfor messages in current request
+    # endwhile messages in rabbit queue
 
     vServerErrors += formatErrors(errors, serverName, pollName)
     return (mqAmqpConnection, mqHttpConf)
@@ -95,12 +174,13 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
 
 # send heartbeat tasks request to rabbitmq exchange
 def sendHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
-    errors=qosMq.sendHeartBeatTasks(mqAmqpConnection,tasksToPoll)
+    errors=heartbeatAgentLib.sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange)
     serverErrors += formatErrors(errors, serverName, "hbSender")
+
 
 # receive heartbeat tasks request from rabbitmq queue
 def receiveHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
-    errors=qosMq.receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll)
+    errors=heartbeatAgentLib.receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue)
     serverErrors += formatErrors(errors, serverName, "hbReceiver")
 
 
@@ -268,12 +348,80 @@ def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqAmqpConnection, o
     e, originatorId = qosDb.getOriginatorIdForAlertType(
         dbConnection=serverDb, alertType=opt['qosAlertType'])
     if e is None:
-        # send alarm to qos gui
-        qosMq.sendQosGuiAlarms(errors=errors,
-                               tasksToPoll=tasksToPoll,
-                               mqAmqpConnection=mqAmqpConnection,
-                               opt=opt,
-                               originatorId=originatorId)
+        # send alarms to main GUI interface of server
+        # originatorID is the service integer number to send alarm
+        # agents like
+        # {akentkey:[{"id":task_serv_id,"taskKey":taskKey,"name":taskText,"style":"rem"}]}  
+        channel = mqAmqpConnection.channel()
+        for taskKey, task in tasksToPoll.items():
+            
+            if task.get('module',None)=='heartbeat':
+                continue
+
+            action = "ACTIVATE" if task.get('style', None) == 'rem' else "CLEAR"
+
+            # 0 - not published
+            # 1 - published activate
+            # 2 - published clear
+            alarmPublishStatus = tasksToPoll[taskKey].get('alarmPublishStatus', 0)
+            needPublish = False
+
+            if action == "ACTIVATE":
+                if alarmPublishStatus != 1:
+                    needPublish = True
+                    alarmPublishStatus = 1
+
+            if action == "CLEAR":
+                if alarmPublishStatus != 2:
+                    needPublish = True
+                    alarmPublishStatus = 2
+
+            if needPublish:
+                tasksToPoll[taskKey]['alarmPublishStatus'] = alarmPublishStatus
+                # print('publish alarm')
+                channel.basic_publish(
+                    exchange='qos.alert',
+                    routing_key='',
+                    properties=pika.BasicProperties(
+                        delivery_mode=2,  # make message persistent
+                        content_type='application/json',
+                        content_encoding='UTF-8',
+                        priority=0,
+                        expiration="86400000",
+                        headers={
+                            '__TypeId__': 'com.tecomgroup.qos.communication.message.AlertMessage'}),
+                    body="""{
+                        "originName":null,
+                        "action":"{action}",
+                        "alert":{
+                            "alertType":{
+                                "name":"{alerttype}",
+                                "probableCause":null,
+                                "displayName":null,
+                                "displayTemplate":null,
+                                "description":null},
+                            "perceivedSeverity":"{ceverity}",
+                            "specificReason":"NONE",
+                            "settings":"",
+                            "context":null,
+                            "indicationType":null,
+                            "dateTime":{time},
+                            "source":{"displayName":null,
+                                "key":"{taskkey}",
+                                "type":"TASK"},
+                            "originatorID":{originatorid},
+                            "originatorName":"123",
+                            "detectionValue":0,
+                            "thresholdValue":0
+                        }}"""
+                    .replace("{action}", action)
+                    .replace("{alerttype}", opt['qosAlertType'])
+                    .replace("{ceverity}", opt['qosSeverity'])
+                    .replace("{time}", str(int(time.time()) * 1000))
+                    .replace("{taskkey}", taskKey)
+                    .replace("{originatorid}", str(int(originatorId)))
+                )
+        #endif e is none
     else:
         errors += [e]
 

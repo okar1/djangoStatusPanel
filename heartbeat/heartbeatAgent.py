@@ -1,28 +1,31 @@
-# -*- coding: utf-8 -*-
-import pika
-from time import time
+# # -*- coding: utf-8 -*-
+# import pika
+# from time import time
 
-receiveFromQueue='heartbeatAgentRequest'
-sendToExchange='heartbeatAgentReply'
-mqIp='127.0.0.1'
-mqPort='15672'
-mqUser='guest'
-mqPassword='guest'
-mqVhost='/'
-logFile='heartbeatAgent.log'
 
-# receive heartbeat tasks request from rabbitmq queue
-def receiveHeartBeatTasks():
-    return []
+# mqIp='127.0.0.1'
+# mqPort='15672'
+# mqUser='guest'
+# mqPassword='guest'
+# mqVhost='/'
+# logFile='heartbeatAgent.log'
+# receiveFromQueue='heartbeatAgentRequest'
+# sendToExchange='heartbeatAgentReply'
+# maxMsgTotal=50000
 
-# send heartbeat tasks request to rabbitmq exchange
-def sendHeartBeatTasks(tasksToPoll):
-	return
+# # receive heartbeat tasks request from rabbitmq queue
+# def receiveHeartBeatTasks():
+#     return []
 
-def processHeartBeatTasks(tasksToPoll):
-	pass
+# # send heartbeat tasks request to rabbitmq exchange
+# def sendHeartBeatTasks(tasksToPoll):
+#     return
 
-if __name__ == '__main__':
-	tasksToPoll=receiveHeartBeatTasks()
-	processHeartBeatTasks(tasksToPoll)
-	sendHeartBeatTasks(tasksToPoll) 
+# def processHeartBeatTasks(tasksToPoll):
+#     pass
+
+# if __name__ == '__main__':
+#     # getMqConnection
+#     tasksToPoll=receiveHeartBeatTasks()
+#     processHeartBeatTasks(tasksToPoll)
+#     sendHeartBeatTasks(tasksToPoll) 

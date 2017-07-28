@@ -61,10 +61,15 @@ def threadPoll():
             )
 
             # send heartbeat tasks request to rabbitmq exchange
-            subs.sendHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
+            # subs.sendHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
             
             # receive heartbeat tasks request from rabbitmq queue
-            subs.receiveHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
+            # subs.receiveHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
+
+            # debug mode for heartbeatAgent: disable "sendHeartBeatTasks" and "receiveHeartBeatTasks" via amqp
+            # and call "processHeartBeatTasks" directly
+            from . import heartbeatAgent
+            heartbeatAgent.processHeartBeatTasks(tasksToPoll)
 
             # use some parameters from oldTasks if it absent in taskstopoll
             subs.useOldParameters(tasksToPoll, oldTasks)            

@@ -4,7 +4,7 @@ import pika
 import time
 from datetime import datetime
 from . import qosDb
-from . import heartbeatAgentLib
+from . import heartbeatAgent
 
 
 sendToExchange='heartbeatAgentRequest'
@@ -67,7 +67,7 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
 
     for mqConf in mqConfig:
         try:
-            amqpLink = heartbeatAgentLib.getMqConnection(mqConf,errors,maxMsgTotal)
+            amqpLink = heartbeatAgent.getMqConnection(mqConf,errors,maxMsgTotal)
         except Exception as e:
             errors += [str(e)]
         else:
@@ -174,13 +174,13 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
 
 # send heartbeat tasks request to rabbitmq exchange
 def sendHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
-    errors=heartbeatAgentLib.sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange)
+    errors=heartbeatAgent.sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,True)
     serverErrors += formatErrors(errors, serverName, "hbSender")
 
 
 # receive heartbeat tasks request from rabbitmq queue
 def receiveHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
-    errors=heartbeatAgentLib.receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue)
+    errors=heartbeatAgent.receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,True)
     serverErrors += formatErrors(errors, serverName, "hbReceiver")
 
 

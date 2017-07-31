@@ -4,6 +4,19 @@ import pika
 import json
 from datetime import datetime
 
+from pysnmp import hlapi as snmp
+from pysnmp.proto.rfc1905 import NoSuchObject # wrong OID
+from pysnmp.proto.rfc1902 import  TimeTicks #TimeTicks
+from pysnmp.smi.rfc1902 import  ObjectIdentity # OID
+from pysnmp.proto.rfc1902 import Integer
+from pysnmp.proto.rfc1902 import  Integer32 # integer
+from pysnmp.proto.rfc1902 import  Gauge32 # gauge
+from pysnmp.proto.rfc1902 import  Counter32 # Counter32
+from pysnmp.proto.rfc1902 import Counter64
+from pysnmp.proto.rfc1902 import Unsigned32
+from pysnmp.proto.rfc1902 import  IpAddress # IpAddres (некорректно в str)
+from pysnmp.proto.rfc1902 import OctetString #OctetString
+
 mqConf={
     "server":'demo.tecom.nnov.ru',
     "port":"15672",
@@ -71,7 +84,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
         else:
             msgBody=task['value']
 
-        msgHeaders={'key':taskKey,'type':task['type'],'timestamp':task['timeStamp']}
+        msgHeaders={'key':taskKey,'type':task['type'],'timestamp':task['timeStamp'],'unit':task['unit']}
 
         channel.basic_publish(
             exchange=sendToExchange,
@@ -128,6 +141,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 taskKey=headers['key']
                 taskType=headers['type']
                 taskTimeStamp=headers['timestamp']
+                taskUnit=headers['unit']
             except Exception as e:
                 errStr = "Ошибка обработки сообщения: неверный заголовок."
                 if errStr not in vErrors:
@@ -149,14 +163,119 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                
                 tasksToPoll[taskKey]['value']=msgBody
                 tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
+                tasksToPoll[taskKey]['unit']=taskUnit
             else:
-                tasksToPoll[taskKey]={'module':'heartbeat','type':taskType,'agentKey':getOk.routing_key,'config':msgBody}
+                tasksToPoll[taskKey]={'module':'heartbeat','type':taskType,'agentKey':getOk.routing_key,
+                                      'unit':taskUnit,'config':msgBody}
 
             
 
         # endfor messages in current request
     # endwhile messages in rabbit queue
     return vErrors
+
+
+def snmpFormatValue(v):
+    _type=type(v)
+    if _type is NoSuchObject:
+        res="Указан неверный OID"
+    elif sum([issubclass(_type,baseType) for baseType in [TimeTicks,Integer,Integer32,Gauge32,Counter32,Counter64,Unsigned32]]):
+        res=int(v)
+    elif sum([issubclass(_type,baseType) for baseType in [ObjectIdentity,IpAddress,OctetString]]):
+        res=str(v.prettyPrint())
+    else:
+        res="Неизвестный тип данных "+str(_type)
+    return res
+
+
+def doSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
+    # sample oids of windows snmp service for debugging
+    #NoSuchObject
+    #oid=".0.0.0.0.0.0.0.0"
+    #TimeTicks
+    #oid=".1.3.6.1.2.1.1.3.0"
+    #OID
+    #oid=".1.3.6.1.2.1.1.2.0"
+    #integer
+    #oid=".1.3.6.1.2.1.1.7.0"
+    #gauge
+    #oid=".1.3.6.1.2.1.2.2.1.5.1"
+    #Counter32
+    #oid=".1.3.6.1.2.1.2.2.1.10.1"
+    #IpAddres
+    #oid=".1.3.6.1.2.1.4.20.1.3.127.0.0.1"
+    #OctetString
+    #oid=".1.3.6.1.2.1.1.1.0"
+    #OctetString with MAC addres
+    #oid=".1.3.6.1.2.1.2.2.1.6.6"
+    try:
+        req = snmp.getCmd(snmp.SnmpEngine(),
+                    snmp.CommunityData(readcommunity),
+                    snmp.UdpTransportTarget((host, port)),
+                    snmp.ContextData(),
+                    snmp.ObjectType(snmp.ObjectIdentity(oid)))
+        reply=next(req)
+    except Exception as e:
+        return str(e)
+
+    if reply[0] is None:
+        # ok result example(None, 0, 0, [ObjectType(ObjectIdentity(ObjectName('1.3.6.1.2.1.1.3.0')), TimeTicks(1245987))])
+        varBind=reply[3][0]
+        
+        if oid[0] == ".":
+            prefix="."
+        else:
+            prefix=""
+        oidInResult=prefix+str(varBind[0])
+
+        if oidInResult!=oid:
+            return ("Указан неверный OID", str(oidInResult),oid)
+        else:
+            value=varBind[1]
+            return snmpFormatValue(value)
+    else:
+        # error example (RequestTimedOut('No SNMP response received before timeout',), 0, 0, [])
+        res=str(reply[0])
+    return res
+
+
+# rename it!!!
+# def snmpGetTable(host,port,readCommunity,snmpColumnDef):
+#     snmpArgs=[
+#         snmp.SnmpEngine(),
+#         snmp.CommunityData(readCommunity, mpModel=0),
+#         snmp.UdpTransportTarget(('127.0.0.1', port)),
+#         snmp.ContextData()
+#         ]
+#     snmpArgs+=[snmp.ObjectType(ObjectIdentity(list(column.values())[0])) for column in snmpColumnDef]
+#     res=[]
+
+#     for (errorIndication,
+#         errorStatus,
+#         errorIndex,
+#         varBinds) \
+#         in snmp.nextCmd(*snmpArgs, lexicographicMode=False):
+
+#         if errorIndication:
+#             print("Ошибка SNMP: "+str(errorIndication))
+#         elif errorStatus:
+#             print('%s at %s' % (errorStatus.prettyPrint(),
+#                                 errorIndex and varBinds[int(errorIndex)-1][0] or '?'))
+#         else:
+
+#             if varBinds is not None:
+#                 res+=[{list(colDef.keys())[0] : varBinds[i][1].prettyPrint() for i,colDef in enumerate(snmpColumnDef)}]
+#     #endfor (snmp)
+#     return res
+
+# snmpColumnDef=(
+#     {'col1':'.1.3.6.1.2.1.4.20.1.1'},
+#     {'col2':'.1.3.6.1.2.1.4.20.1.2'},
+#     {'col3':'.1.3.6.1.2.1.4.20.1.3'},
+#     {'col4':'.1.3.6.1.2.1.4.20.1.4'},
+#     {'col5':'.1.3.6.1.2.1.4.20.1.5'})
+
+# print(snmpGetTable('localhost',"161","public",snmpColumnDef))
 
 
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
@@ -168,14 +287,17 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
 # As result of work - must set keys for every task:
 #   value - string or number with result
 #   timeStamp - value timestamp
-
 def processHeartBeatTasks(tasksToPoll):
     for taskKey,task in tasksToPoll.items():
         if task.get('module',None)!='heartbeat':
             continue
 
         # print("got task",taskKey,task)
-        task['value']="preved!!!"
+        # task['value']="preved!!!"
+        # task['unit']="кг/ам"
+
+        if task['type']=='snmp':
+            task['value']=doSnmp(**task['config'])
         
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
@@ -183,6 +305,7 @@ def processHeartBeatTasks(tasksToPoll):
 
 
 if __name__ == '__main__':
+    # print(doSnmp(**{"oid":".1.3.6.1.2.1.1.1.0"}))
     print("agent start")
     errors=[]
     tasksToPoll={}

@@ -171,7 +171,8 @@ class Items(models.Model):
     type = models.CharField("Тип опроса", max_length=255, blank=False, null=False, editable=True)
     unit = models.CharField("Единица измерения", max_length=255, blank=False, null=False, editable=True)
     config = models.TextField(null=False, default="")
-
+    comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True)
+    
     class Meta:
         verbose_name = 'сборщик данных'
         verbose_name_plural = 'heartbeat - сборщики данных (items)'
@@ -200,7 +201,7 @@ class TaskSets(models.Model):
     hosts = models.ManyToManyField(Hosts, verbose_name="Блоки контроля", blank=True, editable=True) 
     items = models.ManyToManyField(Items, verbose_name="Сборщики данных", blank=True, editable=True )
     enabled = models.BooleanField("Включена", blank=False, null=False, editable=True, default=True)
-
+    comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True)
     
     # if item is disabled - all its tasks willl be disabled
     # if agent is disabled - all its tasks is disabled

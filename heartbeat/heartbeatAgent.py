@@ -3,6 +3,7 @@ import requests
 import pika
 import json
 from datetime import datetime
+from collections import OrderedDict
 
 from pysnmp import hlapi as snmp
 from pysnmp.proto.rfc1905 import NoSuchObject # wrong OID
@@ -16,6 +17,7 @@ from pysnmp.proto.rfc1902 import Counter64
 from pysnmp.proto.rfc1902 import Unsigned32
 from pysnmp.proto.rfc1902 import  IpAddress # IpAddres (некорректно в str)
 from pysnmp.proto.rfc1902 import OctetString #OctetString
+from pyasn1.type.univ import ObjectIdentifier
 
 mqConf={
     "server":'demo.tecom.nnov.ru',
@@ -175,13 +177,13 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
     return vErrors
 
 
-def snmpFormatValue(v):
+def _snmpFormatValue(v):
     _type=type(v)
     if _type is NoSuchObject:
         res="Указан неверный OID"
     elif sum([issubclass(_type,baseType) for baseType in [TimeTicks,Integer,Integer32,Gauge32,Counter32,Counter64,Unsigned32]]):
         res=int(v)
-    elif sum([issubclass(_type,baseType) for baseType in [ObjectIdentity,IpAddress,OctetString]]):
+    elif sum([issubclass(_type,baseType) for baseType in [ObjectIdentity,ObjectIdentifier,IpAddress,OctetString]]):
         res=str(v.prettyPrint())
     else:
         res="Неизвестный тип данных "+str(_type)
@@ -232,50 +234,86 @@ def doSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
             return ("Указан неверный OID", str(oidInResult),oid)
         else:
             value=varBind[1]
-            return snmpFormatValue(value)
+            return _snmpFormatValue(value)
     else:
         # error example (RequestTimedOut('No SNMP response received before timeout',), 0, 0, [])
         res=str(reply[0])
     return res
 
 
-# rename it!!!
-# def snmpGetTable(host,port,readCommunity,snmpColumnDef):
-#     snmpArgs=[
-#         snmp.SnmpEngine(),
-#         snmp.CommunityData(readCommunity, mpModel=0),
-#         snmp.UdpTransportTarget(('127.0.0.1', port)),
-#         snmp.ContextData()
-#         ]
-#     snmpArgs+=[snmp.ObjectType(ObjectIdentity(list(column.values())[0])) for column in snmpColumnDef]
-#     res=[]
+# get snmp table like OrderedDict {indexRow1:[col1,col2,col3],...}
+# no error handling
+def _snmpGetTable(mainoid,host,port,readcommunity):
+    # sample oid for table
+    # oid=".1.3.6.1.2.1.4.20"
+    if mainoid[0]=='.':
+        mainoid=mainoid[1:]
+    res=OrderedDict()
 
-#     for (errorIndication,
-#         errorStatus,
-#         errorIndex,
-#         varBinds) \
-#         in snmp.nextCmd(*snmpArgs, lexicographicMode=False):
+    req = snmp.nextCmd(snmp.SnmpEngine(),
+                snmp.CommunityData(readcommunity),
+                snmp.UdpTransportTarget((host, port)),
+                snmp.ContextData(),
+                snmp.ObjectType(snmp.ObjectIdentity(mainoid)))
 
-#         if errorIndication:
-#             print("Ошибка SNMP: "+str(errorIndication))
-#         elif errorStatus:
-#             print('%s at %s' % (errorStatus.prettyPrint(),
-#                                 errorIndex and varBinds[int(errorIndex)-1][0] or '?'))
-#         else:
+    while True:
+        reply=next(req)
 
-#             if varBinds is not None:
-#                 res+=[{list(colDef.keys())[0] : varBinds[i][1].prettyPrint() for i,colDef in enumerate(snmpColumnDef)}]
-#     #endfor (snmp)
-#     return res
+        if reply[0] is None:
+            # ok result example(None, 0, 0, [ObjectType(ObjectIdentity(ObjectName('1.3.6.1.2.1.1.3.0')), TimeTicks(1245987))])
+            varBind=reply[3][0]
+            oid=str(varBind[0])
 
-# snmpColumnDef=(
-#     {'col1':'.1.3.6.1.2.1.4.20.1.1'},
-#     {'col2':'.1.3.6.1.2.1.4.20.1.2'},
-#     {'col3':'.1.3.6.1.2.1.4.20.1.3'},
-#     {'col4':'.1.3.6.1.2.1.4.20.1.4'},
-#     {'col5':'.1.3.6.1.2.1.4.20.1.5'})
+            # oid like 1.3.6.1.2.1.4.20.1.2.127.0.0.1
+            # where 1.3.6.1.2.1.4.20 - main (table) oid
+            # 1 - entry (hardcode to always=1)
+            # 2 - column index (starts from 1)
+            # 127.0.0.1 - index row value
+            entryIndex=1
+            prefix=mainoid+'.'+str(entryIndex)+"."
 
-# print(snmpGetTable('localhost',"161","public",snmpColumnDef))
+            if not oid.startswith(prefix):
+                break
+
+            oid=oid[len(prefix):]
+            # now oid like 2.127.0.0.1
+
+            # remove entry from oid
+            indexValue='.'.join(oid.split('.')[1:])
+            value=_snmpFormatValue(varBind[1])
+
+            if indexValue not in res.keys():
+                res[indexValue]=[]
+            res[indexValue]+=[value] 
+
+        else:
+            # error example (RequestTimedOut('No SNMP response received before timeout',), 0, 0, [])
+            raise Exception(str(reply[0]))
+    return res
+
+
+def doSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public', indexcol=1, indexcolvalue="", datacol=2):
+    if not hasattr(doSnmpTableValue,"tableDict"):
+        doSnmpTableValue.tableDict={}
+    tableDict=doSnmpTableValue.tableDict
+
+    tableId=oid+"&"+host+"&"+str(port)+"&"+readcommunity
+    if tableId not in tableDict.keys():
+        try:
+            table=_snmpGetTable(oid,host,port,readcommunity)
+        except Exception as e:
+            return str(e)
+        tableDict[tableId]=table
+    else:
+        table=tableDict[tableId]
+
+
+    for row in table.values():
+        if len(row)-1<max(indexcol,datacol):
+            return "В настройках задан неверный номер столбца"
+        if row[indexcol]==indexcolvalue:
+            return row[datacol]
+    return "Не удалось найти значение в таблице SNMP"
 
 
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
@@ -296,7 +334,7 @@ def processHeartBeatTasks(tasksToPoll):
         # task['value']="preved!!!"
         # task['unit']="кг/ам"
 
-        if task['type']=='snmp':
+        if task['type'] in ['snmp','snmpTableValue']:
             task['value']=doSnmp(**task['config'])
         
         #calc current timestamp after end of collecting results        
@@ -305,7 +343,6 @@ def processHeartBeatTasks(tasksToPoll):
 
 
 if __name__ == '__main__':
-    # print(doSnmp(**{"oid":".1.3.6.1.2.1.1.1.0"}))
     print("agent start")
     errors=[]
     tasksToPoll={}

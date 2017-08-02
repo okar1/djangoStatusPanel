@@ -226,7 +226,7 @@ class TaskSets(models.Model):
             heartbeat_tasksets_hosts as "ts_hosts",
             heartbeat_tasksets_items as "ts_items"
             where 
-            ts.server_id=1 and 
+            ts.server_id={serverid} and 
             ts_hosts.tasksets_id=ts.id and
             ts_hosts.hosts_id=hosts.id and
             ts_items.tasksets_id=ts.id and

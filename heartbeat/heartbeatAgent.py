@@ -84,11 +84,13 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             # process only enabled tasks
             if not task.get('enabled',False):
                 continue
+            timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
             msgBody=task['config']
         else:
             msgBody=task['value']
+            timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'type':task['type'],'timestamp':task['timeStamp'],'unit':task['unit']}
+        msgHeaders={'key':taskKey,'type':task['type'],'timestamp':timeStamp,'unit':task['unit']}
 
         channel.basic_publish(
             exchange=sendToExchange,

@@ -4,7 +4,7 @@ import threading
 import sys
 from .models import Servers, Options, TaskSets
 from . import threadPollSubs as subs
-
+import pythoncom
 # heartbeat main thread
 def threadPoll():
 
@@ -16,6 +16,8 @@ def threadPoll():
         threadPoll.appStartTimeStamp = int(time.time())
     else:
         return
+
+    pythoncom.CoInitialize()    
     print('started Heartbeat thread')
 
     while True:

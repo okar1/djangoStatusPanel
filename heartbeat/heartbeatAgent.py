@@ -19,6 +19,8 @@ from pysnmp.proto.rfc1902 import  IpAddress # IpAddres (некорректно �
 from pysnmp.proto.rfc1902 import OctetString #OctetString
 from pyasn1.type.univ import ObjectIdentifier
 
+import wmi
+
 mqConf={
     "server":'demo.tecom.nnov.ru',
     "port":"15672",
@@ -190,7 +192,7 @@ def _snmpFormatValue(v):
     return res
 
 
-def doSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
+def taskSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
     # sample oids of windows snmp service for debugging
     #NoSuchObject
     #oid=".0.0.0.0.0.0.0.0"
@@ -292,10 +294,10 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
     return res
 
 
-def doSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public', indexcol=1, indexcolvalue="", datacol=2):
-    if not hasattr(doSnmpTableValue,"tableDict"):
-        doSnmpTableValue.tableDict={}
-    tableDict=doSnmpTableValue.tableDict
+def taskSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public', indexcol=1, indexcolvalue="", datacol=2):
+    if not hasattr(taskSnmpTableValue,"tableDict"):
+        taskSnmpTableValue.tableDict={}
+    tableDict=taskSnmpTableValue.tableDict
 
     tableId=oid+"&"+host+"&"+str(port)+"&"+readcommunity
     if tableId not in tableDict.keys():
@@ -316,6 +318,27 @@ def doSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='p
     return "Не удалось найти значение в таблице SNMP"
 
 
+# get wmi table from OpenHardwaqreMonitor like {Identifier:value,...}
+# no error handling
+def _wmiOhmTable():
+    c=wmi.WMI(namespace="OpenHardwareMonitor")
+    wql="select * from Sensor"
+    q=c.query(wql)
+    return {item.Identifier:item.Value for item in q}
+
+
+# identifier of openHardwareMonitor table value like "/intelcpu/0/temperature/0"
+def taskOhmTableValue(identifier):
+    if not hasattr(taskOhmTableValue,"tableDict"):
+        try:
+            taskOhmTableValue.tableDict=_wmiOhmTable()
+        except Exception as e:
+            return str(e)
+    tableDict=taskOhmTableValue.tableDict
+
+    return tableDict.get(identifier,"Не удалось найти значение в таблице Open Hardware Monitor")
+
+
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
 # keys in every heartbeat task : 
 #   module - always == "heartbeat"
@@ -334,8 +357,12 @@ def processHeartBeatTasks(tasksToPoll):
         # task['value']="preved!!!"
         # task['unit']="кг/ам"
 
-        if task['type'] in ['snmp','snmpTableValue']:
-            task['value']=doSnmp(**task['config'])
+        if task['type'] == 'snmp':
+            task['value']=taskSnmp(**task['config'])
+        if task['type'] == 'snmpTableValue':
+            task['value']=taskSnmpTableValue(**task['config'])
+        if task['type'] == 'ohmTableValue':
+            task['value']=taskOhmTableValue(**task['config'])
         
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
@@ -343,6 +370,8 @@ def processHeartBeatTasks(tasksToPoll):
 
 
 if __name__ == '__main__':
+    # print(taskOhmTableValue("/intelcpu/0/temperature/2"))
+    # print(taskOhmTableValue("/intelcpu/0/temperature/0"))
     print("agent start")
     errors=[]
     tasksToPoll={}

@@ -19,7 +19,7 @@ from pysnmp.proto.rfc1902 import  IpAddress # IpAddres (некорректно �
 from pysnmp.proto.rfc1902 import OctetString #OctetString
 from pyasn1.type.univ import ObjectIdentifier
 
-import wmi
+# import wmi
 
 mqConf={
     "server":'demo.tecom.nnov.ru',
@@ -321,10 +321,11 @@ def taskSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity=
 # get wmi table from OpenHardwaqreMonitor like {Identifier:value,...}
 # no error handling
 def _wmiOhmTable():
-    c=wmi.WMI(namespace="OpenHardwareMonitor")
-    wql="select * from Sensor"
-    q=c.query(wql)
-    return {item.Identifier:item.Value for item in q}
+    return
+    # c=wmi.WMI(namespace="OpenHardwareMonitor")
+    # wql="select * from Sensor"
+    # q=c.query(wql)
+    # return {item.Identifier:item.Value for item in q}
 
 
 # identifier of openHardwareMonitor table value like "/intelcpu/0/temperature/0"

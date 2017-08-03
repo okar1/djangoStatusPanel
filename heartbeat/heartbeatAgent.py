@@ -108,6 +108,8 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
 
 
 def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
+    messageBorderValue=100
+
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
     vErrors=[]
@@ -120,64 +122,74 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         vErrors+= [str(e)]
         return vErrors
 
-    mqMessages = [""]
-    while len(mqMessages) > 0:
-
+    mqMessages = []
+    startBorderCounter=False
+    borderCounter=0
+    while True:
         # connect and check errors (amqp)
         getOk = None
         try:
-            getOk, *mqMessages = channel.basic_get(receiveFromQueue, no_ack=True)
+            getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
         except Exception as e:
             vErrors += [str(e)]
             return vErrors
 
         if getOk:
-            if mqMessages[0].content_type != 'application/json':
-                vErrors += ["Неверный тип данных " + mqMessages[0].content_type]
+            if mqMessage[0].content_type != 'application/json':
+                vErrors += ["Неверный тип данных " + mqMessage[0].content_type]
                 return vErrors
-            mqMessages = [mqMessages]
+            mqMessages += [mqMessage]
+            
+            if not startBorderCounter:
+                messagesLeft=getOk.message_count
+
+                if messagesLeft<messageBorderValue:
+                    startBorderCounter=True
+                    borderCounter=messagesLeft
+
+            if startBorderCounter:
+                borderCounter-=1
+                if borderCounter<=0:
+                    break
         else:
-            mqMessages = []
+            break
+    # endwhile messages in rabbit queue            
 
-        # now we have list of mqMessages
-        for msg in mqMessages:
+    # now we have list of mqMessages
+    for msg in mqMessages:
 
-            try:
-                headers = msg[0].headers
-                taskKey=headers['key']
-                taskType=headers['type']
-                taskTimeStamp=headers['timestamp']
-                taskUnit=headers['unit']
-            except Exception as e:
-                errStr = "Ошибка обработки сообщения: неверный заголовок."
-                if errStr not in vErrors:
-                    vErrors += [errStr]
-                continue
+        try:
+            headers = msg[0].headers
+            taskKey=headers['key']
+            taskType=headers['type']
+            taskTimeStamp=headers['timestamp']
+            taskUnit=headers['unit']
+        except Exception as e:
+            errStr = "Ошибка обработки сообщения: неверный заголовок."
+            if errStr not in vErrors:
+                vErrors += [errStr]
+            continue
 
-            # parse message payload
-            try:
-                msgBody = json.loads((msg[1]).decode('utf-8'))
-                # msgBody['value']=777
-            except Exception as e:
-                vErrors += ['Ошибка обработки сообщения: неверное содержимое.']
+        # parse message payload
+        try:
+            msgBody = json.loads((msg[1]).decode('utf-8'))
+            # msgBody['value']=777
+        except Exception as e:
+            vErrors += ['Ошибка обработки сообщения: неверное содержимое.']
+            return vErrors
+        
+        if serverMode:            
+            if taskKey not in tasksToPoll.keys():
+                vErrors += ['Ошибка обработки сообщения: неверный ключ.']
                 return vErrors
-            
-            if serverMode:            
-                if taskKey not in tasksToPoll.keys():
-                    vErrors += ['Ошибка обработки сообщения: неверный ключ.']
-                    return vErrors
-               
-                tasksToPoll[taskKey]['value']=msgBody
-                tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
-                tasksToPoll[taskKey]['unit']=taskUnit
-            else:
-                tasksToPoll[taskKey]={'module':'heartbeat','type':taskType,'agentKey':getOk.routing_key,
-                                      'unit':taskUnit,'config':msgBody}
-
-            
-
-        # endfor messages in current request
-    # endwhile messages in rabbit queue
+           
+            tasksToPoll[taskKey]['value']=msgBody
+            tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
+            tasksToPoll[taskKey]['unit']=taskUnit
+        else:
+            tasksToPoll[taskKey]={'module':'heartbeat','type':taskType,'agentKey':getOk.routing_key,
+                                  'unit':taskUnit,'config':msgBody}
+    # endfor messages in current request
     return vErrors
 
 

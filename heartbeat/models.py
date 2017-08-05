@@ -40,17 +40,25 @@ class Servers(models.Model):
             mq.server.fieldOptions = dict(
                 label="RabbitMQ хост", initial="localhost", help_text="например mq.node.qos", required=False)
 
-            mq.port.fieldClass = forms.IntegerField
-            mq.port.fieldOptions = dict(
-                label="HTTP порт", initial=15672, help_text="обычно 15672", required=False)
+            mq.httpUrl.fieldClass = forms.CharField
+            mq.httpUrl.fieldOptions = dict(
+                label="HTTP url", initial="http://localhost:15672", help_text="например<br/>http://localhost:15672", required=False)
 
-            mq.user.fieldClass = forms.CharField
-            mq.user.fieldOptions = dict(
-                label="Пользователь", initial="guest", help_text="по умолчанию guest", required=False)
+            mq.amqpUrl.fieldClass = forms.CharField
+            mq.amqpUrl.fieldOptions = dict(
+                label="AMQP url", initial="amqp://guest:guest@localhost:5672/%2f", help_text="например<br/>amqp://guest:guest@localhost:5672/%2f", required=False)
 
-            mq.pwd.fieldClass = forms.CharField
-            mq.pwd.fieldOptions = dict(label="Пароль", initial="guest", help_text="по умолчанию guest",
-                                       required=False, widget=forms.PasswordInput(render_value=True))
+            mq.heartbeatQueue.fieldClass = forms.CharField
+            mq.heartbeatQueue.fieldOptions = dict(
+                label="Очередь heartbeat", initial="heartbeat", help_text="Название очереди для<br/>сбора сообщений Q,<br/>по умолчанию heartbeat", required=False)
+
+            mq.heartbeatAgentRequest.fieldClass = forms.CharField
+            mq.heartbeatAgentRequest.fieldOptions = dict(
+                label="Exchange для hb agent", initial="heartbeatAgentRequest", help_text="Название exchange для<br/>отправки сообщений агентам", required=False)
+
+            mq.heartbeatAgentReply.fieldClass = forms.CharField
+            mq.heartbeatAgentReply.fieldOptions = dict(
+                label="Очередь для hb agent", initial="heartbeatAgentReply", help_text="Название очереди для<br/>приема результатов от агентов", required=False)
 
         with fieldTemplate.db as db:
             db.server.fieldClass = forms.CharField

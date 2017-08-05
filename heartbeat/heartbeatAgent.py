@@ -108,6 +108,9 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
 
 
 def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
+    # when amount of messages in queue becomes less than border value (ex 100)
+    # than we get only this amount of messages (ex 100) and over
+    # this is made to prevent long delays on queues with high incoming message rate
     messageBorderValue=100
 
     if not mqAmqpConnection:

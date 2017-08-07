@@ -6,10 +6,6 @@ from datetime import datetime
 from . import qosDb
 from . import heartbeatAgent
 
-
-sendToExchange='heartbeatAgentRequest'
-receiveFromQueue='heartbeatAgentReply'
-heartbeatQueue = 'heartbeat'
 timeStampFormat="%Y%m%d%H%M%S"
 
 def formatErrors(errors, serverName, pollName):
@@ -59,38 +55,34 @@ def pollDb(dbConfig, serverName, vServerErrors):
     return (dbConnection, tasksToPoll)
 
 
-# mqConfig -> (mqAmqpConnection, mqHttpConf)
+# mqConfig=[mqConf] -> mqConf (select first working mqconf)
 def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
     pollName = "RabbitMQ"
     errors = []
     mqConnections = []
 
+    # mqAmqpConnection if first working mq was found and res is corresponding mqConf
+    res=None
+    mqAmqpConnection=None
     for mqConf in mqConfig:
         try:
-            amqpLink = heartbeatAgent.getMqConnection(mqConf,errors,maxMsgTotal)
+            con = pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
         except Exception as e:
             errors += [str(e)]
         else:
-            mqConnections += [(mqConf, amqpLink)]
+            mqConnections += [mqConf]
+            if res is None:
+                res=mqConf
+                # use first working connection in later tasks
+                mqAmqpConnection=con
+            else:
+                # close all amqplink but first
+                if con.is_open:
+                    con.colse()
     # endfor
 
-    mqAmqpConnection = None
-    mqHttpConf = None
-
-    if not mqConnections:
-        # (none, none)
-        return (mqAmqpConnection, mqHttpConf)
-
-    # close all connections but first
-    for i in range(1, len(mqConnections)):
-        mqConnections[i][1].close()
-
-    # use first connection in later tasks
-    mqHttpConf = mqConnections[0][0]
-    mqAmqpConnection = mqConnections[0][1]
-
-    if not vTasksToPoll:
-        return (mqAmqpConnection, mqHttpConf)
+    if (res is None) or (not vTasksToPoll):
+        return res
 
     # poll all rabbitmq instances for one cluster
     # calculate idletime for each task in tasks
@@ -99,18 +91,20 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
     mqMessages = [""]
 
     try:
-        amqpLink.queue_declare(queue=heartbeatQueue, durable=True,arguments={'x-message-ttl':1800000})
+        amqpLink.queue_declare(queue=res['heartbeatQueue'], durable=True,arguments={'x-message-ttl':1800000})
     except Exception as e:
         errors+= [str(e)]
         vServerErrors += formatErrors(errors, serverName, pollName)
-        return (mqAmqpConnection, mqHttpConf)
+        if mqAmqpConnection.is_open:
+            mqAmqpConnection.colse()
+        return res
 
     while len(mqMessages) > 0:
 
         # connect and check errors (amqp)
         getOk = None
         try:
-            getOk, *mqMessages = amqpLink.basic_get(heartbeatQueue, no_ack=True)
+            getOk, *mqMessages = amqpLink.basic_get(res['heartbeatQueue'], no_ack=True)
         except Exception as e:
             errors += [str(e)]
             break
@@ -163,25 +157,33 @@ def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
             except Exception as e:
                 errors += [str(e)]
                 vServerErrors += formatErrors(errors, serverName, pollName)
-                return (mqAmqpConnection, mqHttpConf)
+                if mqAmqpConnection.is_open:
+                    mqAmqpConnection.colse()
+                return res
 
         # endfor messages in current request
     # endwhile messages in rabbit queue
 
     vServerErrors += formatErrors(errors, serverName, pollName)
-    return (mqAmqpConnection, mqHttpConf)
+    if mqAmqpConnection.is_open:
+        mqAmqpConnection.close()
+    return res
 
 
 # send heartbeat tasks request to rabbitmq exchange
-def sendHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
-    errors=heartbeatAgent.sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,True)
+def sendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
+    con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
+    errors=heartbeatAgent.sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
     serverErrors += formatErrors(errors, serverName, "hbSender")
+    con.close()
 
 
 # receive heartbeat tasks request from rabbitmq queue
-def receiveHeartBeatTasks(mqAmqpConnection,serverName,tasksToPoll,serverErrors):
-    errors=heartbeatAgent.receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,True)
+def receiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
+    con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
+    errors=heartbeatAgent.receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
     serverErrors += formatErrors(errors, serverName, "hbReceiver")
+    con.close()
 
 
 def useOldParameters(vTasksToPoll, oldTasks):
@@ -332,7 +334,7 @@ def pollResultCalcProgress(vPollResult):
                     errHead, errCount, count)
 
 
-def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqAmqpConnection, opt, vServerErrors):
+def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqConf, opt, vServerErrors):
     # dublicate errors "no task data" to qos server gui
     pollName = "QosGuiAlarm"
     errors = []
@@ -352,7 +354,8 @@ def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqAmqpConnection, o
         # originatorID is the service integer number to send alarm
         # agents like
         # {akentkey:[{"id":task_serv_id,"taskKey":taskKey,"name":taskText,"style":"rem"}]}  
-        channel = mqAmqpConnection.channel()
+        con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
+        channel = con.channel()
         for taskKey, task in tasksToPoll.items():
             
             if task.get('module',None)=='heartbeat':
@@ -421,6 +424,7 @@ def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqAmqpConnection, o
                     .replace("{taskkey}", taskKey)
                     .replace("{originatorid}", str(int(originatorId)))
                 )
+        con.close()
         #endif e is none
     else:
         errors += [e]

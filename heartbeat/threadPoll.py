@@ -33,10 +33,6 @@ def threadPoll():
             tasksToPoll = None
             # connection to database
             serverDb = None
-            # amqp connection to rabbit
-            mqAmqpConnection = None
-            # credintials for access rabbit http api
-            mqHttpConf = None
 
             # oldtsks are used to get timestamp if it absent in current taskstopoll
             oldTasks = threadPoll.oldTasks.get(server.name, None)
@@ -47,31 +43,32 @@ def threadPoll():
             # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
-            # polling RabbitMQ. Get MQ connection.
+            # polling RabbitMQ.
             # Add "idleTime" to tasksToPoll
-            # mqHttpConf is one of serverConfig['mq'] for later http api connections
-            mqAmqpConnection, mqHttpConf = subs.pollMQ(
-                                                serverConfig['mq'],
-                                                server.name,
-                                                opt["maxMsgTotal"],
-                                                serverErrors,
-                                                tasksToPoll)
+            # mqConf is one of serverConfig['mq'] for later use
+            mqConf = subs.pollMQ(
+                                serverConfig['mq'],
+                                server.name,
+                                opt["maxMsgTotal"],
+                                serverErrors,
+                                tasksToPoll)
 
-            # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
-            tasksToPoll.update(
-                TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
-            )
+            if mqConf is not None:
+                # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
+                tasksToPoll.update(
+                    TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
+                )
 
-            # send heartbeat tasks request to rabbitmq exchange
-            subs.sendHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
-            
-            # receive heartbeat tasks request from rabbitmq queue
-            subs.receiveHeartBeatTasks(mqAmqpConnection,server.name,tasksToPoll,serverErrors)
+                # send heartbeat tasks request to rabbitmq exchange
+                subs.sendHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)
+                
+                # receive heartbeat tasks request from rabbitmq queue
+                subs.receiveHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)
 
-            # debug mode for heartbeatAgent: disable "sendHeartBeatTasks" and "receiveHeartBeatTasks" via amqp
-            # and call "processHeartBeatTasks" directly
-            # from . import heartbeatAgent
-            # heartbeatAgent.processHeartBeatTasks(tasksToPoll)
+                # debug mode for heartbeatAgent: disable "sendHeartBeatTasks" and "receiveHeartBeatTasks" via amqp
+                # and call "processHeartBeatTasks" directly
+                # from . import heartbeatAgent
+                # heartbeatAgent.processHeartBeatTasks(tasksToPoll)
 
             # use some parameters from oldTasks if it absent in taskstopoll
             subs.useOldParameters(tasksToPoll, oldTasks)            
@@ -89,13 +86,13 @@ def threadPoll():
                 opt['pollingPeriodSec'])
 
             # dublicate task alarms to qos gui
-            if server.qosguialarm and serverDb and mqAmqpConnection:
+            if server.qosguialarm and serverDb and mqConf:
                 subs.qosGuiAlarm(
                     tasksToPoll,
                     oldTasks,
                     server.name,
                     serverDb,
-                    mqAmqpConnection,
+                    mqConf,
                     opt,
                     serverErrors)
 
@@ -110,8 +107,6 @@ def threadPoll():
 
             if serverDb:
                 serverDb.close()
-            if mqAmqpConnection:
-                mqAmqpConnection.close()
         # end for server
 
         subs.pollResultSort(pollResult)

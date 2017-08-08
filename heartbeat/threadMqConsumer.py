@@ -3,97 +3,37 @@ import pika
 import threading
 import time
 
-def on_message(channel, method_frame, header_frame, body):
-    print("message",method_frame.delivery_tag)
-    channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+
 
 class mqConsumers():
-    _mqConnection=None
-    _breakLoop=False
     queueName=""
+    
+    # static
+    mqConsumers.threads={}
+
     messages=[]
     errors=[]
 
-    def createUpdateConsumer(consumerName,mqConnection,queueName):
-        if not hasattr(mqConsumers,"consumers"):
-            mqConsumers.consumers={}
-        c=mqConsumers.consumers.get(consumerName,mqConsumers())
-        c.setConnection(mqConnection)
-        c.queueName=queueName
-        mqConsumers.consumers[consumerName]=c
+    def on_message(channel, method_frame, header_frame, body):
+        print("message",method_frame.delivery_tag)
+        channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+
+    def createUpdateConsumer(consumerName,amqpUrl,queueName):
+        a=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
         return c
 
-    # def __init__(self):
-    #     super().__init__(self)
-
     def setConnection(self,connection):
-        if self._mqConnection is not None and self._mqConnection.is_open:
-            self._breakLoop=True
-            if self._mqConnection is not None:
-                self._mqConnection.channel().stop_consuming()
-                self._mqConnection.channel().close()
-                # self._mqConnection.close()
-            print("connection closed")
-        self._mqConnection=connection
-
-
-    def _consumeLoop(self):
-        if self._mqConnection!=None:
-            channel = self._mqConnection.channel()
-            channel.basic_consume(on_message, self.queueName)
-            print("start cons")
-            try:
-                channel.start_consuming()
-            except KeyboardInterrupt:
-                print("interupt")
-                channel.stop_consuming()
-            print("end cons")                
-            # connection.close()
-            # print('connection lost. Reconnect in 5 seconds')
-            # time.sleep(5)
-
+        pass
 
     def startConsume(self):
         t = threading.Thread(target=self._consumeLoop)
         t.start()
 
 
-
-def thr():
-    print('kill')
-    main.channel.stop_consuming()
 def main():
 
 
     while True:
-        connection = pika.BlockingConnection(
-            pika.ConnectionParameters(
-                'demo.tecom.nnov.ru',
-                5672,
-                '/',
-                pika.PlainCredentials('guest', 'guest')))
-        main.connection=connection
-        channel = connection.channel()
-        main.channel=channel
-        
-        # channel.add_on_cancel_callback(self.on_consumer_cancelled)
-
-        connection.add_timeout(5,thr)
-        print("start")
-        channel.basic_consume(on_message, 'test')
-
-        main.channel.start_consuming()
-        # t = threading.Thread(target=thr)
-        # t.start()
-        print('wait to stop')
-        time.sleep(7)
-        print('stop')
-        channel.stop_consuming()
-        channel.close()
-        
-        connection.close()
-
-
         # c=mqConsumers.createUpdateConsumer('test',connection,'test')
         # c.startConsume()
         # print(len(mqConsumers.consumers['test'].messages))
@@ -107,4 +47,76 @@ def main():
 
 if __name__=='__main__':
     main()
-    print('over')
+
+
+
+
+# Create a global channel variable to hold our channel object in
+channel = None
+
+# Step #2
+def on_connected(connection):
+    """Called when we are fully connected to RabbitMQ"""
+    # Open a channel
+    connection.channel(on_channel_open)
+
+# Step #3
+def on_channel_open(new_channel):
+    """Called when our channel has opened"""
+    global channel
+    channel = new_channel
+    channel.queue_declare(queue="test", durable=True, exclusive=False, auto_delete=False, callback=on_queue_declared)
+
+# Step #4
+def on_queue_declared(frame):
+    """Called when RabbitMQ has told us our Queue has been declared, frame is the response from RabbitMQ"""
+    channel.basic_consume(handle_delivery, queue='test')
+
+# Step #5
+def handle_delivery(channel, method, header, body):
+    """Called when we receive a message from RabbitMQ"""
+    print ('msg')
+    channel.basic_ack(delivery_tag=method.delivery_tag)
+
+def timeout():
+    print(connection.is_open)
+    if connection.is_open:
+        # channel.stop_consuming()
+        print('1')
+        print('2')
+        # channel.close()
+        print('3')
+        # connection.close()
+        print('4')
+        # connection.ioloop.stop()
+        # print(dir(channel))
+        # con.ioloop.stop()
+    else:
+        pass
+        connection.ioloop.stop()
+    connection.add_timeout(5, timeout)
+# Step #1: Connect to RabbitMQ using the default parameters
+parameters = pika.ConnectionParameters(
+                '127.0.0.1',
+                5672,
+                '/',
+                pika.PlainCredentials('guest', 'guest'))
+
+print('begin')
+while True:
+    try:
+        connection = pika.SelectConnection(parameters, on_connected)
+        timeout.con=connection
+        connection.add_timeout(5, timeout)
+        connection.ioloop.start()
+        connection.close()    
+    except Exception as e:
+        print("error",str(e))
+    
+    
+    print("retry")
+    time.sleep(5)
+
+print ('end')
+    # # Loop until we're fully closed, will stop on its own
+    # connection.ioloop.start()

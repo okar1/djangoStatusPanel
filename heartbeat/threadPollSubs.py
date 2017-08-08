@@ -246,13 +246,17 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
     agentHasErrors = set()
     if tasksToPoll is not None:
         for taskKey, task in tasksToPoll.items():
-            agentKey = task['agentKey']
+            # agentName is used for box caption
+            agentName = serverName + " " + task['agentName']
+            # truncate agentName>25 symbols
+            if len(agentName)>25:
+                agentName=agentName[:25]+"..."
 
-            if agentKey in agents.keys():
-                curTasks = agents[agentKey]
+            if agentName in agents.keys():
+                curTasks = agents[agentName]
             else:
                 curTasks = []
-                agents[agentKey] = curTasks
+                agents[agentName] = curTasks
 
             taskData = {"id": serverName + '.' +
                         taskKey, "name": task['displayname']}
@@ -262,7 +266,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
             if taskStyle is not None:
                 taskData.update({"style": taskStyle})
                 if taskStyle == 'rem':
-                    agentHasErrors.add(agentKey)
+                    agentHasErrors.add(agentName)
 
             curTasks += [taskData]
 

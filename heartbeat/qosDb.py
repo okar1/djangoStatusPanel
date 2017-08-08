@@ -44,6 +44,7 @@ def getTasks(dbConnection):
     result = {}
 
     sql = """select magent.entity_key as "agentkey",
+    magent.displayname as "agentname",
     magenttask.entity_key as "taskkey",
     magenttask.displayname as "displayname",
     mproperty.value as "period"
@@ -64,8 +65,8 @@ def getTasks(dbConnection):
         cur.execute(sql)
         rows = cur.fetchall()
 
-        result = {row[1]: {"agentKey": row[0], "displayname": row[2],
-            "period": int(row[3])} for row in rows}
+        result = {row[2]: {"agentKey": row[0], "agentName":row[1], "displayname": row[3],
+            "period": int(row[4])} for row in rows}
         return (error, result)
     except Exception as e:
         error = str(e)

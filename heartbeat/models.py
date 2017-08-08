@@ -247,6 +247,8 @@ class TaskSets(models.Model):
         return {
             task.agentkey + '.Heartbeat.' + str(task.itemid): {
                 "agentKey":task.agentkey,
+                # for heartbeat tasks agentKey and AgentName are the same
+                "agentName":task.agentkey,
                 "module":"heartbeat",
                 "displayname":task.name,
                 "type":task.type,

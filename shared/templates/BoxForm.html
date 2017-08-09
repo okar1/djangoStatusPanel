@@ -17,6 +17,9 @@
 <script>
 var token='{{csrf_token}}'
 var timerDangerousTimeSec='{{timerDangerousTimeSec}}'
+// reload page if not received server reply in 30 minutes
+var timerPageReloadSec=1800
+
 </script>
 <script src="{% static "shared/jquery-ui.js" %}"></script>
 <script src="{% static "shared/boxFormController.js" %}"></script>

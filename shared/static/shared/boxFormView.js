@@ -234,6 +234,10 @@ function startTimer(){
 	nowTimeStamp=parseInt(new Date().getTime()/1000)
 	timerValue=nowTimeStamp-progressClientTimeStamp
 	timerText="Обновлено "+timerValue+" сек назад"
+	// reload page every 60 sec if not received server reply in this period
+	if (timerValue>timerPageReloadSec && timerValue%60==0){
+		location.reload();
+	}
 	if (timerValue>timerDangerousTimeSec){
 		$("#timer").show().text(timerText).removeClass("standartNotice").addClass("dangerousNotice")
 	}

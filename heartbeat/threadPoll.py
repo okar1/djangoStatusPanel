@@ -4,6 +4,7 @@ import threading
 import sys
 from .models import Servers, Options, TaskSets
 from . import threadPollSubs as subs
+from .threadMqConsumers import MqConsumers
 # import pythoncom
 # heartbeat main thread
 def threadPoll():
@@ -26,6 +27,7 @@ def threadPoll():
         # "pollServer": ,data:boxTasks}]
         pollResult = []
         pollStartTimeStamp = int(time.time())
+        mqConsumerStore={}
 
         for server in Servers.objects.all():
             serverConfig = server.getConfigObject()
@@ -52,6 +54,9 @@ def threadPoll():
                                 opt["maxMsgTotal"],
                                 serverErrors,
                                 tasksToPoll)
+
+            *************mqConsumerStore[server.name]=(mqConf['amqpUrl'],mqConf['heartbeatQueue'])
+            *************MqConsumers.createUpdateDeleteConsumers(mqConsumerStore)
 
             if mqConf is not None:
                 # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"

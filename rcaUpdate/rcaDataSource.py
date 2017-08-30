@@ -14,16 +14,20 @@ def tupleToString(v):
 
 
 
-def query(agentList=(), channelList=(),moduleList=(), resultType=("agent","channel","module","parameterName","taskName","taskKey")):
+def query(channelNameRegex=".*", agentList=(), channelList=(),moduleList=(), resultType=("agent","channel","module","parameterName","taskName","taskKey")):
 	try:
 	    conn = psycopg2.connect("dbname='qos' user='qos' host='localhost' password='Tecom1' port=5432")
 	except psycopg2.Error as err:
 	    raise Exception("Connection error: {}".format(err))
 
-	#5 групп по 3 символа через точку. В каждой группе буквы,цифры,+ или _. Первая группа - начинается с буквы
-	#allowedChannelNames=r"[a-zA-Z][a-zA-Z0-9_+]{2}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}"
-	allowedChannelNames=r"[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3} "
-	allowedChannelSQL="substring(mgrouppolicy.taskidentifier_taskname from '{0}')".format(allowedChannelNames)
+	# channelNameRegex is applied to taskname to fet channelname from it
+	# postgreSQL returns channel name as result of whole regex match.
+	# if regex contains groups - then first group match is used
+
+	if channelNameRegex.find('"')!=-1 or channelNameRegex.find("'")!=-1:
+		raise Exception("""channelNameRegex could not contain ' or " for security reasons""")
+
+	allowedChannelSQL="substring(mgrouppolicy.taskidentifier_taskname from '{0}')".format(channelNameRegex)
 
 	sectDistinct=[]
 	sectSelect=[]
@@ -101,7 +105,8 @@ def query(agentList=(), channelList=(),moduleList=(), resultType=("agent","chann
 			{4}
 		--LIMIT 200  ;
 		""".format(sectDistinct,sectSelect,sectWhere,sectGroup,sectOrder,allowedChannelSQL)
-
+		
+	# print(sqlString)
 	data=[]
 	try:
 	    cur = conn.cursor()

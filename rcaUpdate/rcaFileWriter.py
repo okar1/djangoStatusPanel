@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append('..')
-from qsettings.rcaDataSource import query
+from rcaDataSource import query
 import json
 from transliterate import translit
 from CustomDict import CustomDict,CustomEncoder
 
 
 #aggregation level indices (random numbers)
-itmplParameter,itmplTask,itmplModule,itmplAgent,itmplChannel,itmplLevel=22,15,18,100,333,58
+itmplParameter,itmplTask,itmplModule,itmplAgent,itmplLevel,itmplGroup=22,15,18,100,333,58
 #setting indices (random numbers)
-iNameLabel,iDataLabel,iNeedPrio,iVirtual,iTopLevelTemplate,iOutputFile=23,654,765,354,86,32
+iNameLabel,iDataLabel,iNeedPrio=23,654,765
 
 #settings for result file
 s={
@@ -20,45 +20,33 @@ s={
 		iNameLabel:"name",
 		#write priority flag to json
 		iNeedPrio:True,
-		#not affect to json data, only to grouping key
-		iVirtual:False,
 	},
 	itmplTask:{
 		iNameLabel:"name",
 		iDataLabel:"parameters",
 		iNeedPrio:False,
-		iVirtual:False,
-		#json jeader if iTmplTask selected for grouping
-		iTopLevelTemplate:{"originatorid":"lalala","originatorid2":"lalala2"},
-		#file name
-		iOutputFile: "byTask",
 	},		
 	itmplModule:{
 		iNameLabel:"name",
 		iDataLabel:"tasks",
 		iNeedPrio:False,
-		iVirtual:False,
-		iTopLevelTemplate:{"originatorid":"lalala","originatorid2":"lalala2"},
-		iOutputFile: "byModule",
 	},		
 	itmplAgent:{
 		iNameLabel:"key",
 		iDataLabel:"modules",
 		iNeedPrio:False,
-		iVirtual:False,
-		iTopLevelTemplate:{"originatorid":"age","originatorid2":"age"},
-		iOutputFile: "byAgent",
 	},		
-	itmplChannel:{
-		iVirtual:True,
-		iTopLevelTemplate:{"originatorid":"ch","originatorid2":"ch"},
-		iOutputFile: "byChannel",
-	},
 	itmplLevel:{
 		iNameLabel:"name",
 		iDataLabel:"agents",
 		iNeedPrio:True,
+	},		
+	itmplGroup:{
+		iNameLabel:"name",
+		iDataLabel:"levels",
+		iNeedPrio:False,
 	},
+
 }
 
 #merge b into a
@@ -76,7 +64,7 @@ def mergeDict(a,b,path=None,dictLen=0):
 				a[key].append(b[key])
 			elif a[key] == b[key]:
 				pass # same leaf value
-			elif key=='priority':
+			elif key=='priority' or key=='taskKey':
 				pass
 			else:
 				print(a)
@@ -90,86 +78,35 @@ def mergeDict(a,b,path=None,dictLen=0):
 #********************************************
 #********************************************
 #********************************************
-#called for every db line. Writes result file
-def makeFiles(
-	#len pOrder==len(pData)+1. Last is level definition
-	#order of parameters from low to high (const at every run)
-	pOrder=[itmplParameter,itmplTask,itmplAgent,itmplChannel,itmplLevel],
-	#current data from db
-	pData=["par","task","age","chan"],
-	#end collect data and write file
-	isLastStep=False,
-	#index of param for grouping data in result file
-	groupIndices=[itmplAgent]
+#called for every db line. Collects vResult structure
+def processDbRow(
+	# list of aggregation level indices, from low (parameter) to high (group)
+	pOrder,
+	#list of data of current DB row for every pOrder item
+	pNames
 	):
-	
-	if not hasattr(makeFiles, "res"):
-		makeFiles.res = [CustomDict() for i in range(len(groupIndices))]
 
-	# got data to merge
-	if True:
-		curData=''
-		for i in range(len(pOrder)-1):
+	# got rowData to merge
+	rowData=None
+	for i in range(len(pOrder)):
 
-			if not s[pOrder[i]][iVirtual]:
-				if i==0:
-					tmp={s[pOrder[i]][iNameLabel] : pData[i]}
-				else:
-					tmp={s[pOrder[i]][iNameLabel]: pData[i], s[pOrder[i]][iDataLabel]:curData}
+		curName=pNames[i]
+		curIndex=pOrder[i]
+		curSettings=s[curIndex]
 
-				if s[pOrder[i]][iNeedPrio]:
-					tmp.update({"priority":1})
+		# first item not contain data, only name
+		if rowData is None:
+			tmp={curSettings[iNameLabel] : curName}
+		else:
+			tmp={curSettings[iNameLabel] : curName, curSettings[iDataLabel] : rowData}
 
-				curData=CustomDict()
-				curData[pData[i]]=tmp
-			#endif	
-	#endif
+		if curSettings[iNeedPrio]:
+			tmp.update({"priority":1})
 
-	#every gi produces 1 result file
-	for gi in range(len(groupIndices)):
+		rowData=CustomDict()
+		rowData[curName]=tmp
 
-		#calc group key and keys of every level
-		if True:
-			keys=['' for i in range(len(pOrder)-1)]
-			key=[]
-			giPos=-1
-			for i in range(len(pOrder)-2,-1,-1):
-				curParam=pOrder[i]
-				key.append(pData[i])
-				keys[i]=".".join(key)
-				if curParam==groupIndices[gi]:
-					giPos=i
-					break
-			if giPos==-1:
-				raise("groupIndex {0} not in order list".format(gi))
-		#endif
-		key=keys[giPos]
-
-		#curdata & key --> leveldata 
-		if True:
-			last=len(pOrder)-1
-			tmp={s[pOrder[last]][iNameLabel]: key, s[pOrder[last]][iDataLabel]:curData}		
-			if s[pOrder[last]][iNeedPrio]:
-				tmp.update({"priority":1})
-			levelData=CustomDict()
-			levelData[key]=tmp
-		#endif
-
-		#merge level data with result in prev iterations			
-		res=makeFiles.res[gi]
-		mergeDict(res,levelData)
-
-		if isLastStep:
-			#add top level template to result
-			res={"levels":res}
-			res.update(s[groupIndices[gi]][iTopLevelTemplate])
-
-			#save result to file
-			with open(s[groupIndices[gi]][iOutputFile], 'w', encoding="utf8") as f:
-			  json.dump(res, f, cls=CustomEncoder, ensure_ascii=False, indent=True)
-
-			#reset var
-			makeFiles.res[gi]=CustomDict()
+	return rowData
 
 #********************************************
 #********************************************
@@ -195,7 +132,7 @@ def _do_channelKeyName(rusName):
 #********************************************
 #********************************************
 #main sub. Read DB and call writer
-def do_makefiles(db,path,detailLevels=("agent","channel","module","task","all")):
+def makeFile(db,outputFile):
 
 	#db query must be gr as: agent->module->task->parameter
 	# expected indices of columns in db table
@@ -205,27 +142,57 @@ def do_makefiles(db,path,detailLevels=("agent","channel","module","task","all"))
 	iParameter=3
 	iChannel=4
 
-	isLastStep=False
+	res = CustomDict()
+
 	for curLine in range(len(db)):
-		if curLine==len(db)-1:
-			isLastStep=True
 		cursor=db[curLine]
 		
-		# channel=_do_channelKeyName(cursor[iChannel])
-		makeFiles(
-			pOrder=[itmplParameter,itmplTask,itmplModule,itmplAgent,itmplLevel],
-			pData=[cursor[iParameter],cursor[iTask],cursor[iModule],cursor[iAgent],],
-			isLastStep=isLastStep,
-			groupIndices=[itmplAgent]
+		# change it as u like :)
+		alertTypeKey=_do_channelKeyName(cursor[iChannel])+"."+cursor[iModule] +"."+cursor[iParameter]
+
+		rowData=processDbRow(
+			pOrder=[itmplParameter,itmplTask,itmplModule,itmplAgent,itmplLevel,itmplGroup],
+			pNames=[cursor[iParameter],cursor[iTask],cursor[iModule],cursor[iAgent],alertTypeKey,alertTypeKey],
 		)
+
+		taskKey=cursor[iAgent]+"."+cursor[iModule]+"."+cursor[iTask]
+		for item in rowData.values():
+			item["taskKey"]=taskKey
+		#merge common result with data of current row
+		mergeDict(res,rowData)
+
 	#endfor db	
+
+	print ("following alertTypes was created:")
+	
+	# change it as u like :)
+	for item in res.values():
+		item['rules']=["L2"]
+		item['originatorId']=29681
+		item['alertTypeName']="qos.RCA."+item['name']
+		print(item['alertTypeName'])
+		item['rcaSeverity']=4
+
+
+	#add top level template to result
+	res={"groups":res}
+	# res.update(topLevelTemplate)
+
+	#save result to file
+	with open(outputFile, 'w', encoding="utf8") as f:
+	  json.dump(res, f, cls=CustomEncoder, ensure_ascii=False, indent=True)
+
 #********************************************
 #********************************************
 #********************************************
 if __name__ == "__main__":
-	q=query()
+	#для Рт - 5 групп по 3 символа через точку. В каждой группе буквы,цифры,+ или _. Первая группа - начинается с буквы
+	#channelNameRegex=r"[a-zA-Z][a-zA-Z0-9_+]{2}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}"
+	# для бел "что то - имя канала - что то"
+	channelNameRegex=r"^.*?- *(.*?) *-"
+
+	q=query(channelNameRegex=channelNameRegex)
 	# for i in q:
-	# 	print(i)
-	path="d:\\files\\"
-	do_makefiles(q,path)
+		# print(i)
+	makeFile(q,outputFile=r"d:\files\rs",)
 	#makefiles()

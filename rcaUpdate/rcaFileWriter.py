@@ -86,7 +86,6 @@ def processDbRow(
 	pNames
 	):
 
-	# got rowData to merge
 	rowData=None
 	for i in range(len(pOrder)):
 
@@ -132,7 +131,7 @@ def _do_channelKeyName(rusName):
 #********************************************
 #********************************************
 #main sub. Read DB and call writer
-def makeFile(db,outputFile):
+def makeFile(pAlertTypeTemplate,pChannelNameRegex,pRules,pOriginatorId,pRcaSeverity,pOutputFile):
 
 	#db query must be gr as: agent->module->task->parameter
 	# expected indices of columns in db table
@@ -142,14 +141,24 @@ def makeFile(db,outputFile):
 	iParameter=3
 	iChannel=4
 
+	db=query(channelNameRegex=pChannelNameRegex)
 	res = CustomDict()
 
 	for curLine in range(len(db)):
 		cursor=db[curLine]
 		
-		# change it as u like :)
-		alertTypeKey=_do_channelKeyName(cursor[iChannel])+"."+cursor[iModule] +"."+cursor[iParameter]
-
+		alertTypeKey=pAlertTypeTemplate
+		if alertTypeKey.find("{channel}")!=-1:
+			alertTypeKey=alertTypeKey.replace("{channel}",_do_channelKeyName(cursor[iChannel]))
+		if alertTypeKey.find("{agent}")!=-1:
+			alertTypeKey=alertTypeKey.replace("{agent}",cursor[iAgent])
+		if alertTypeKey.find("{module}")!=-1:
+			alertTypeKey=alertTypeKey.replace("{module}",cursor[iModule])
+		if alertTypeKey.find("{task}")!=-1:
+			alertTypeKey=alertTypeKey.replace("{task}",cursor[iTask])
+		if alertTypeKey.find("{parameter}")!=-1:
+			alertTypeKey=alertTypeKey.replace("{parameter}",cursor[iParameter])
+		
 		rowData=processDbRow(
 			pOrder=[itmplParameter,itmplTask,itmplModule,itmplAgent,itmplLevel,itmplGroup],
 			pNames=[cursor[iParameter],cursor[iTask],cursor[iModule],cursor[iAgent],alertTypeKey,alertTypeKey],
@@ -160,39 +169,47 @@ def makeFile(db,outputFile):
 			item["taskKey"]=taskKey
 		#merge common result with data of current row
 		mergeDict(res,rowData)
-
 	#endfor db	
 
 	print ("following alertTypes was created:")
-	
-	# change it as u like :)
 	for item in res.values():
-		item['rules']=["L2"]
-		item['originatorId']=29681
+		item['rules']=pRules
+		item['originatorId']=pOriginatorId
 		item['alertTypeName']="qos.RCA."+item['name']
 		print(item['alertTypeName'])
-		item['rcaSeverity']=4
-
-
-	#add top level template to result
+		item['rcaSeverity']=pRcaSeverity
+	print (len(res)," alertTypes total")
 	res={"groups":res}
-	# res.update(topLevelTemplate)
 
 	#save result to file
-	with open(outputFile, 'w', encoding="utf8") as f:
+	with open(pOutputFile, 'w', encoding="utf8") as f:
 	  json.dump(res, f, cls=CustomEncoder, ensure_ascii=False, indent=True)
 
 #********************************************
 #********************************************
 #********************************************
 if __name__ == "__main__":
-	#для Рт - 5 групп по 3 символа через точку. В каждой группе буквы,цифры,+ или _. Первая группа - начинается с буквы
+	#channelNameRegex для Рт - 5 групп по 3 символа через точку. В каждой группе буквы,цифры,+ или _. Первая группа - начинается с буквы
 	#channelNameRegex=r"[a-zA-Z][a-zA-Z0-9_+]{2}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}"
 	# для бел "что то - имя канала - что то"
 	channelNameRegex=r"^.*?- *(.*?) *-"
 
+	# key for grouping tasks to rca groups
+	# available fields: {agent} {channel} {module} {task} {parameter}
+	alertTypeTemplate="{channel}.{module}.{parameter}"
+
+	makeFile(
+		pAlertTypeTemplate=alertTypeTemplate,
+		pChannelNameRegex=channelNameRegex,
+		pRules=["L2"],
+		pOriginatorId=29681,
+		pRcaSeverity=4,
+		pOutputFile=r"d:\files\rs",)
+
 	q=query(channelNameRegex=channelNameRegex)
-	# for i in q:
-		# print(i)
-	makeFile(q,outputFile=r"d:\files\rs",)
-	#makefiles()
+	print(len(q), "db records with channelName detected")
+
+	q=query()
+	print(len(q), "db records total")
+
+

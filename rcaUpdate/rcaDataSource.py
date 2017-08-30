@@ -27,6 +27,9 @@ def query(channelNameRegex=".*", agentList=(), channelList=(),moduleList=(), res
 	if channelNameRegex.find('"')!=-1 or channelNameRegex.find("'")!=-1:
 		raise Exception("""channelNameRegex could not contain ' or " for security reasons""")
 
+	if channelNameRegex is None or channelNameRegex=="":
+		channelNameRegex=".*"
+
 	allowedChannelSQL="substring(mgrouppolicy.taskidentifier_taskname from '{0}')".format(channelNameRegex)
 
 	sectDistinct=[]

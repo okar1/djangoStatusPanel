@@ -27,7 +27,6 @@ def threadPoll():
         # "pollServer": ,data:boxTasks}]
         pollResult = []
         pollStartTimeStamp = int(time.time())
-        mqConsumerStore={}
 
         for server in Servers.objects.all():
             serverConfig = server.getConfigObject()
@@ -51,14 +50,15 @@ def threadPoll():
             mqConf = subs.pollMQ(
                                 serverConfig['mq'],
                                 server.name,
+                                str(server.id)+" "+server.name,
                                 opt["maxMsgTotal"],
                                 serverErrors,
                                 tasksToPoll)
 
-            *************mqConsumerStore[server.name]=(mqConf['amqpUrl'],mqConf['heartbeatQueue'])
-            *************MqConsumers.createUpdateDeleteConsumers(mqConsumerStore)
-
             if mqConf is not None:
+                # opens mq consumer for this server. If it alredy opened - do nothing 
+                MqConsumers.createUpdateConsumers({str(server.id)+" "+server.name:(mqConf['amqpUrl'],mqConf['heartbeatQueue'])})
+
                 # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
                 tasksToPoll.update(
                     TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
@@ -113,6 +113,10 @@ def threadPoll():
             if serverDb:
                 serverDb.close()
         # end for server
+        
+        # close and delete MQ consumers wich was not updated in cycle before
+        # (ex. db config was changed)
+        MqConsumers.cleanupConsumers()
 
         subs.pollResultSort(pollResult)
         subs.pollResultCalcProgress(pollResult)

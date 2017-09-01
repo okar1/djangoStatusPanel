@@ -12,6 +12,8 @@ class MqConsumers():
     # static vars
     # consumers store like {name: instance}
     store={}
+    # this consumerd will not be deleted by cleanupConsumers()
+    updatedConsumers=set()
 
     # non-static (instance) vars
     consumerName=""
@@ -25,23 +27,22 @@ class MqConsumers():
 
     # static
     # newStore like {consumerName:(amqpUrl,queueName)}
-    def createUpdateDeleteConsumers(newStore):
+    def createUpdateConsumers(newStore):
         store=MqConsumers.store
         sStore=set(store)
         sNewStore=set(newStore)
 
-        consToDelete=sStore-sNewStore
-        for conName in consToDelete:
-            store[conName].stopConsumer()
-            store.pop(conName)
-
         consToAdd=sNewStore-sStore
+        # remember consToAdd in updatedConsumers set
+        MqConsumers.updatedConsumers.update(consToAdd)
         for conName in consToAdd:
             newC=MqConsumers(conName,newStore[conName][0],newStore[conName][1])
             store[conName]=newC
             newC.startConsumer()
 
         consToUpdate=sStore.intersection(sNewStore)
+        # remember consToUpdate in updatedConsumers set
+        MqConsumers.updatedConsumers.update(consToUpdate)
         for conName in consToUpdate:
             c=store[conName]
             newUrl=newStore[conName][0]
@@ -54,6 +55,16 @@ class MqConsumers():
                 newC=MqConsumers(conName,newStore[conName][0],newStore[conName][1])
                 store[conName]=newC
                 newC.startConsumer()
+
+    # static
+    # stop consumers wich was not updated since last cleanupConsumers() call
+    def cleanupConsumers():
+        consToDelete=set(MqConsumers.store)-MqConsumers.updatedConsumers
+        for conName in consToDelete:
+            store[conName].stopConsumer()
+            store.pop(conName)
+
+        MqConsumers.updatedConsumers=set()
 
 
     # static

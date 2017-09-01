@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 from . import qosDb
 from . import heartbeatAgent
+from .threadMqConsumers import MqConsumers
 
 timeStampFormat="%Y%m%d%H%M%S"
 
@@ -56,117 +57,145 @@ def pollDb(dbConfig, serverName, vServerErrors):
 
 
 # mqConfig=[mqConf] -> mqConf (select first working mqconf)
-def pollMQ(mqConfig, serverName, maxMsgTotal, vServerErrors, vTasksToPoll):
+def pollMQ(mqConfig, serverName, mqConsumerId, maxMsgTotal, vServerErrors, vTasksToPoll):
     pollName = "RabbitMQ"
     errors = []
-    mqConnections = []
+    # mqConnections = []
 
     # mqAmqpConnection if first working mq was found and res is corresponding mqConf
     res=None
-    mqAmqpConnection=None
     for mqConf in mqConfig:
         try:
             con = pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
         except Exception as e:
             errors += [str(e)]
         else:
-            mqConnections += [mqConf]
             if res is None:
-                res=mqConf
                 # use first working connection in later tasks
-                mqAmqpConnection=con
-            else:
-                # close all amqplink but first
-                if con.is_open:
-                    con.colse()
+                res=mqConf
+            #close amqplink
+            if con.is_open:
+                con.close()
     # endfor
 
     if (res is None) or (not vTasksToPoll):
         return res
 
-    # poll all rabbitmq instances for one cluster
-    # calculate idletime for each task in tasks
-    # store result in tasks[taskKey]["timestamp"]
-    amqpLink = mqAmqpConnection.channel()
-    mqMessages = [""]
+    print(mqConsumerId)
+    msg=MqConsumers.popConsumerMessages(mqConsumerId)
 
-    try:
-        amqpLink.queue_declare(queue=res['heartbeatQueue'], durable=True,arguments={'x-message-ttl':1800000})
-    except Exception as e:
-        errors+= [str(e)]
-        vServerErrors += formatErrors(errors, serverName, pollName)
-        if mqAmqpConnection.is_open:
-            mqAmqpConnection.colse()
-        return res
+    print(msg)
 
-    while len(mqMessages) > 0:
 
-        # connect and check errors (amqp)
-        getOk = None
-        try:
-            getOk, *mqMessages = amqpLink.basic_get(res['heartbeatQueue'], no_ack=True)
-        except Exception as e:
-            errors += [str(e)]
-            break
 
-        if getOk:
-            if mqMessages[0].content_type != 'application/json':
-                errors += ["Неверный тип данных " + mqMessages[0].content_type]
-                break
-            mqMessages = [mqMessages]
-        else:
-            mqMessages = []
+    # *** old not-async mq method bellow ***
 
-        # now we have list of mqMessages
-        for msg in mqMessages:
+    # # mqAmqpConnection if first working mq was found and res is corresponding mqConf
+    # res=None
+    # mqAmqpConnection=None
+    # for mqConf in mqConfig:
+    #     try:
+    #         con = pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
+    #     except Exception as e:
+    #         errors += [str(e)]
+    #     else:
+    #         mqConnections += [mqConf]
+    #         if res is None:
+    #             res=mqConf
+    #             # use first working connection in later tasks
+    #             mqAmqpConnection=con
+    #         else:
+    #             # close all amqplink but first
+    #             if con.is_open:
+    #                 con.close()
+    # # endfor
 
-            msgType = ""
-            try:
-                msgType = msg[0].headers['__TypeId__']
-            except Exception as e:
-                errStr = "Ошибка обработки сообщения: нет информации о типе."
-                if errStr not in errors:
-                    errors += [errStr]
-                continue
+    # if (res is None) or (not vTasksToPoll):
+    #     return res
 
-            # parse message payload
-            try:
-                mData = json.loads((msg[1]).decode('utf-8'))
-                taskKey = mData['taskKey']
-                if taskKey not in vTasksToPoll.keys():
-                    errors += ["Задача " + taskKey + " не зарегистрирована в БД"]
-                    continue
+    # # poll all rabbitmq instances for one cluster
+    # # calculate idletime for each task in tasks
+    # # store result in tasks[taskKey]["timestamp"]
+    # amqpLink = mqAmqpConnection.channel()
+    # mqMessages = [""]
 
-                if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
+    # try:
+    #     amqpLink.queue_declare(queue=res['heartbeatQueue'], durable=True,arguments={'x-message-ttl':1800000})
+    # except Exception as e:
+    #     errors+= [str(e)]
+    #     vServerErrors += formatErrors(errors, serverName, pollName)
+    #     if mqAmqpConnection.is_open:
+    #         mqAmqpConnection.colse()
+    #     return res
 
-                    taskResults = mData['results']
-                    for tr in taskResults:
-                        # if result has any parameters - store min task
-                        # idletime in vTasksToPoll
-                        if len(tr['parameters'].keys()) > 0:
-                            vTasksToPoll[taskKey]['timeStamp'] = tr['resultDateTime']
+    # while len(mqMessages) > 0:
 
-                elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
-                    if len(mData['TSStructure']) > 0:
-                        vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
-                else:
-                    errStr = "Неизвестный тип сообщения: " + msgType
-                    if errStr not in errors:
-                        errors += [errStr]
+    #     # connect and check errors (amqp)
+    #     getOk = None
+    #     try:
+    #         getOk, *mqMessages = amqpLink.basic_get(res['heartbeatQueue'], no_ack=True)
+    #     except Exception as e:
+    #         errors += [str(e)]
+    #         break
 
-            except Exception as e:
-                errors += [str(e)]
-                vServerErrors += formatErrors(errors, serverName, pollName)
-                if mqAmqpConnection.is_open:
-                    mqAmqpConnection.colse()
-                return res
+    #     if getOk:
+    #         if mqMessages[0].content_type != 'application/json':
+    #             errors += ["Неверный тип данных " + mqMessages[0].content_type]
+    #             break
+    #         mqMessages = [mqMessages]
+    #     else:
+    #         mqMessages = []
 
-        # endfor messages in current request
-    # endwhile messages in rabbit queue
+    #     # now we have list of mqMessages
+    #     for msg in mqMessages:
+
+    #         msgType = ""
+    #         try:
+    #             msgType = msg[0].headers['__TypeId__']
+    #         except Exception as e:
+    #             errStr = "Ошибка обработки сообщения: нет информации о типе."
+    #             if errStr not in errors:
+    #                 errors += [errStr]
+    #             continue
+
+    #         # parse message payload
+    #         try:
+    #             mData = json.loads((msg[1]).decode('utf-8'))
+    #             taskKey = mData['taskKey']
+    #             if taskKey not in vTasksToPoll.keys():
+    #                 errors += ["Задача " + taskKey + " не зарегистрирована в БД"]
+    #                 continue
+
+    #             if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
+
+    #                 taskResults = mData['results']
+    #                 for tr in taskResults:
+    #                     # if result has any parameters - store min task
+    #                     # idletime in vTasksToPoll
+    #                     if len(tr['parameters'].keys()) > 0:
+    #                         vTasksToPoll[taskKey]['timeStamp'] = tr['resultDateTime']
+
+    #             elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
+    #                 if len(mData['TSStructure']) > 0:
+    #                     vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
+    #             else:
+    #                 errStr = "Неизвестный тип сообщения: " + msgType
+    #                 if errStr not in errors:
+    #                     errors += [errStr]
+
+    #         except Exception as e:
+    #             errors += [str(e)]
+    #             vServerErrors += formatErrors(errors, serverName, pollName)
+    #             if mqAmqpConnection.is_open:
+    #                 mqAmqpConnection.colse()
+    #             return res
+
+    #     # endfor messages in current request
+    # # endwhile messages in rabbit queue
 
     vServerErrors += formatErrors(errors, serverName, pollName)
-    if mqAmqpConnection.is_open:
-        mqAmqpConnection.close()
+    # if mqAmqpConnection.is_open:
+    #     mqAmqpConnection.close()
     return res
 
 

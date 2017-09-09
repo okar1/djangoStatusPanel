@@ -360,7 +360,7 @@ def calcIddleTime(vTasksToPoll):
             task["idleTime"] = utcNowDateTime - resultDateTime
 
 
-def markTasks(tasksToPoll, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
+def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
         
@@ -372,8 +372,8 @@ def markTasks(tasksToPoll, pollStartTimeStamp, appStartTimeStamp, pollingPeriodS
             if "idleTime" not in task.keys():
                 task['displayname'] = "{0} ({1}) : Данные не получены".format(
                     taskKey, task['displayname'])
-                if (pollStartTimeStamp - appStartTimeStamp) > \
-                        3 * max(task['period'], pollingPeriodSec):
+                # if task is absent in previous poll - then not mark it as error
+                if taskKey in oldTasks.keys():
                     task['style'] = 'rem'
                 else:
                     task['style'] = 'ign'

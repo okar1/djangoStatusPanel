@@ -86,6 +86,7 @@ def threadPoll():
             # style == "ign" - error presents, but ignored (gray)
             subs.markTasks(
                 tasksToPoll,
+                oldTasks,
                 pollStartTimeStamp,
                 threadPoll.appStartTimeStamp,
                 opt['pollingPeriodSec'])

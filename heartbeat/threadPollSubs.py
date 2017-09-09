@@ -56,11 +56,11 @@ def pollDb(dbConfig, serverName, vServerErrors):
     return (dbConnection, tasksToPoll)
 
 
+# test all rabbitMQ configs and return first working to mqconf
 # mqConfig=[mqConf] -> mqConf (select first working mqconf)
-def pollMQ(mqConfig, serverName, mqConsumerId, maxMsgTotal, vServerErrors, vTasksToPoll):
-    pollName = "RabbitMQ"
+def getMqConf(mqConfig,serverName,maxMsgTotal,vServerErrors):
+    pollName = "CheckRabbitMq"
     errors = []
-    # mqConnections = []
 
     # mqAmqpConnection if first working mq was found and res is corresponding mqConf
     res=None
@@ -78,14 +78,139 @@ def pollMQ(mqConfig, serverName, mqConsumerId, maxMsgTotal, vServerErrors, vTask
                 con.close()
     # endfor
 
-    if (res is None) or (not vTasksToPoll):
-        return res
+    vServerErrors += formatErrors(errors, serverName, pollName)
+    return res
 
-    print(mqConsumerId)
-    msg=MqConsumers.popConsumerMessages(mqConsumerId)
 
-    print(msg)
+def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
+    pollName = "RabbitMQ"
+    errors = []
 
+    try:
+        mqMessages = MqConsumers.popConsumerMessages(mqConsumerId)
+    except Exception as e:
+        errors+=[str(e)]
+        vServerErrors += formatErrors(errors, serverName, pollName)
+
+    # now we have list of mqMessages
+    for msg in mqMessages:
+        if type(msg)!=tuple or len(msg)!=3:
+            errStr="Неверный тип сообщения"
+            if errStr not in errors:
+                errors += [errStr]
+            continue
+
+        # unpack tuple
+        mMetaData, mProperties, mData=msg
+        mHeaders=mProperties.headers
+
+        # example:
+
+        # --- metadata ---
+
+        # [(<Basic.Deliver(['consumer_tag=ctag1.3f91b60b79f7431a8d4b66a8906eaed3',
+        # 'delivery_tag=1',
+        # 'exchange=',
+        # 'redelivered=False',
+        # 'routing_key=test'])>,
+
+        # --- properties ---
+
+        # <BasicProperties(['content_encoding=UTF-8',
+        # 'content_type=application/json',
+        # 'delivery_mode=2',
+        # 'expiration=604800000',
+        # "headers={'x-received-from': [{'uri': 'amqp://192.168.116.60/test', 'exchange': 'qos.result', 'redelivered': False}], '__TypeId__': 'com.tecomgroup.qos.communication.message.TSStructureResultMessage', 'version': '1.0'}"])>,
+
+        # --- data ---
+
+        # b'{
+        #     "TSStructure": {
+        #         "ServiceList": [{
+        #             "Bitrate": 2449.9933304775377,
+        #             "PESList": [{
+        #                 "Bitrate": 2323.102415867024,
+        #                 "PESProperties": [.......]
+        #                 "Pid": 256,
+        #                 "StreamType": "27 (ITU-T Rec. H.264 and ISO/IEC 14496-10 (lower bit-rate video))",
+        #                 "Type": "Video"
+        #             },
+        #             .....
+        #             ],
+        #             "ServiceID": "1",
+        #             "ServiceProperties": [{
+        #                 "Name": "Name",
+        #                 "Value": "Service01"
+        #             },
+        #             .....
+        #             ]
+        #         }],
+        #         "TSID": 1,
+        #         "TSProperties": [{
+        #             "Name": "Bitrate",
+        #             "Value": 2522.838114790981
+        #         },
+        #         .....
+        #         ]
+        #     },
+        #     "originName": "BC_Test_All_Signal",
+        #     "taskKey": "BC_Test_All_Signal.TSStructure.71020",
+        #     "timestamp": "20170901055905"
+        # }'),
+
+        # next message ...
+        # ]        
+
+        if mProperties.content_type != 'application/json':
+            errStr="Неверный тип данных " + mProperties
+            if errStr not in errors:
+                errors += [errStr]
+            continue
+
+        msgType = ""
+        try:
+            msgType = mHeaders['__TypeId__']
+        except Exception as e:
+            errStr = "Ошибка обработки сообщения: нет информации о типе."
+            if errStr not in errors:
+                errors += [errStr]
+            continue
+
+        # parse message payload
+        try:
+            mData = json.loads((mData).decode('utf-8'))
+            taskKey = mData['taskKey']
+            if taskKey not in vTasksToPoll.keys():
+                errStr="Задача " + taskKey + " не зарегистрирована в БД"
+                if errStr not in errors:
+                    errors += [errStr]
+                continue
+
+            if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
+
+                taskResults = mData['results']
+                for tr in taskResults:
+                    # if result has any parameters - store min task
+                    # idletime in vTasksToPoll
+                    if len(tr['parameters'].keys()) > 0:
+                        vTasksToPoll[taskKey]['timeStamp'] = tr['resultDateTime']
+
+            elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
+                if len(mData['TSStructure']) > 0:
+                    vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
+            else:
+                errStr = "Неизвестный тип сообщения: " + msgType
+                if errStr not in errors:
+                    errors += [errStr]
+
+        except Exception as e:
+            errors += [str(e)]
+            vServerErrors += formatErrors(errors, serverName, pollName)
+            continue
+
+    # endfor
+
+    vServerErrors += formatErrors(errors, serverName, pollName)
 
 
     # *** old not-async mq method bellow ***
@@ -193,10 +318,10 @@ def pollMQ(mqConfig, serverName, mqConsumerId, maxMsgTotal, vServerErrors, vTask
     #     # endfor messages in current request
     # # endwhile messages in rabbit queue
 
-    vServerErrors += formatErrors(errors, serverName, pollName)
+    # vServerErrors += formatErrors(errors, serverName, pollName)
     # if mqAmqpConnection.is_open:
     #     mqAmqpConnection.close()
-    return res
+    # return res
 
 
 # send heartbeat tasks request to rabbitmq exchange

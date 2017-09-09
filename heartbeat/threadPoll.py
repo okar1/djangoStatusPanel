@@ -18,6 +18,8 @@ def threadPoll():
     else:
         return
 
+    firstRun=True
+
     # pythoncom.CoInitialize()    
     print('started Heartbeat thread')
 
@@ -34,6 +36,7 @@ def threadPoll():
             tasksToPoll = None
             # connection to database
             serverDb = None
+            mqConf=None
 
             # oldtsks are used to get timestamp if it absent in current taskstopoll
             oldTasks = threadPoll.oldTasks.get(server.name, None)
@@ -44,20 +47,25 @@ def threadPoll():
             # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
-            # polling RabbitMQ.
-            # Add "idleTime" to tasksToPoll
-            # mqConf is one of serverConfig['mq'] for later use
-            mqConf = subs.pollMQ(
-                                serverConfig['mq'],
-                                server.name,
-                                str(server.id)+" "+server.name,
-                                opt["maxMsgTotal"],
-                                serverErrors,
-                                tasksToPoll)
+            if tasksToPoll:
+                # test all rabbitMQ configs and return first working to mqconf
+                # serverConfig['mq']=[mqConf] -> mqConf (select first working mqconf)
+                mqConf = subs.getMqConf(serverConfig['mq'], server.name, opt["maxMsgTotal"], serverErrors)
 
-            if mqConf is not None:
+            if mqConf:
+                mqConsumerId=str(server.id)+" "+server.name
+
                 # opens mq consumer for this server. If it alredy opened - do nothing 
-                MqConsumers.createUpdateConsumers({str(server.id)+" "+server.name:(mqConf['amqpUrl'],mqConf['heartbeatQueue'])})
+                MqConsumers.createUpdateConsumers({mqConsumerId:(mqConf['amqpUrl'],mqConf['heartbeatQueue'])})
+
+                # get some seconds to collect messages from RabbitMQ if first run
+                # not matter for next runs because of async message collection
+                if firstRun:
+                    firstRun=False
+                    time.sleep(5)
+
+                # polling RabbitMQ (download messages from consumer), add "idleTime" to tasksToPoll
+                subs.pollMQ(server.name, mqConsumerId,serverErrors,tasksToPoll)
 
                 # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
                 tasksToPoll.update(

@@ -89,14 +89,17 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
     try:
         mqMessages = MqConsumers.popConsumerMessages(mqConsumerId)
     except Exception as e:
-        errors.update(str(e))
+        errors.add(str(e))
         vServerErrors += formatErrors(errors, serverName, pollName)
         return
+
+    # print("**************************",mqConsumerId)
+    # print(mqMessages)
 
     # now we have list of mqMessages
     for msg in mqMessages:
         if type(msg)!=tuple or len(msg)!=3:
-            errors.update("RabbitMQ вернул недопустимые данные")
+            errors.add("RabbitMQ вернул недопустимые данные")
             continue
 
         # unpack tuple
@@ -162,17 +165,17 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
         try:
             mHeaders=mProperties.headers
             if mProperties.content_type != 'application/json':
-                errors.update("Неверный тип данных в сообщении RabbitMQ" + mProperties)
+                errors.add("Неверный тип данных в сообщении RabbitMQ" + mProperties)
                 continue
         except Exception as e:
-            errors.update(e)
+            errors.add(e)
             continue
 
         msgType = ""
         try:
             msgType = mHeaders['__TypeId__']
         except Exception as e:
-            errors.update("Ошибка обработки сообщения: нет информации о типе.")
+            errors.add("Ошибка обработки сообщения: нет информации о типе.")
             continue
 
         # parse message payload
@@ -181,7 +184,7 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
             taskKey = mData['taskKey']
 
             if taskKey not in vTasksToPoll.keys():
-                errors.update("Задача " + taskKey + " не зарегистрирована в БД")
+                errors.add("Задача " + taskKey + " не зарегистрирована в БД")
                 continue
 
             if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
@@ -197,11 +200,11 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
                 if len(mData['TSStructure']) > 0:
                     vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
             else:
-                errors.update("Неизвестный тип сообщения: " + msgType)
+                errors.add("Неизвестный тип сообщения: " + msgType)
                 continue
 
         except Exception as e:
-            errors.update(str(e))
+            errors.add(str(e))
             continue
 
     # endfor

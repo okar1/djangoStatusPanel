@@ -18,8 +18,6 @@ def threadPoll():
     else:
         return
 
-    firstRun=True
-
     # pythoncom.CoInitialize()    
     print('started Heartbeat thread')
 
@@ -57,12 +55,6 @@ def threadPoll():
 
                 # opens mq consumer for this server. If it alredy opened - do nothing 
                 MqConsumers.createUpdateConsumers({mqConsumerId:(mqConf['amqpUrl'],mqConf['heartbeatQueue'])})
-
-                # get some seconds to collect messages from RabbitMQ if first run
-                # not matter for next runs because of async message collection
-                if firstRun:
-                    firstRun=False
-                    time.sleep(5)
 
                 # polling RabbitMQ (download messages from consumer), add "idleTime" to tasksToPoll
                 subs.pollMQ(server.name, mqConsumerId,serverErrors,tasksToPoll)

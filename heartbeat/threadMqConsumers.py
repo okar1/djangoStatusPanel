@@ -61,8 +61,8 @@ class MqConsumers():
     def cleanupConsumers():
         consToDelete=set(MqConsumers.store)-MqConsumers.updatedConsumers
         for conName in consToDelete:
-            store[conName].stopConsumer()
-            store.pop(conName)
+            MqConsumers.store[conName].stopConsumer()
+            MqConsumers.store.pop(conName)
 
         MqConsumers.updatedConsumers=set()
 

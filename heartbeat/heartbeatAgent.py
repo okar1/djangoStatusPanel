@@ -19,10 +19,10 @@ from pysnmp.proto.rfc1902 import  IpAddress # IpAddres (некорректно �
 from pysnmp.proto.rfc1902 import OctetString #OctetString
 from pyasn1.type.univ import ObjectIdentifier
 
-# import wmi
+import wmi
 
 mqConf={
-    "server":'demo.tecom.nnov.ru',
+    "server":'127.0.0.1',
     "port":"15672",
     "user":"guest",
     "pwd":"guest",
@@ -90,7 +90,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             msgBody=task['value']
             timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'type':task['type'],'timestamp':timeStamp,'unit':task['unit']}
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
 
         channel.basic_publish(
             exchange=sendToExchange,
@@ -164,7 +164,6 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         try:
             headers = msg[0].headers
             taskKey=headers['key']
-            taskType=headers['type']
             taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
         except Exception as e:
@@ -190,7 +189,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
             tasksToPoll[taskKey]['unit']=taskUnit
         else:
-            tasksToPoll[taskKey]={'module':'heartbeat','type':taskType,'agentKey':getOk.routing_key,
+            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':getOk.routing_key,
                                   'unit':taskUnit,'config':msgBody}
     # endfor messages in current request
     return vErrors
@@ -338,23 +337,43 @@ def taskSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity=
 # get wmi table from OpenHardwaqreMonitor like {Identifier:value,...}
 # no error handling
 def _wmiOhmTable():
-    return
-    # c=wmi.WMI(namespace="OpenHardwareMonitor")
-    # wql="select * from Sensor"
-    # q=c.query(wql)
-    # return {item.Identifier:item.Value for item in q}
+    c=wmi.WMI(namespace="OpenHardwareMonitor")
+    wql="select * from Sensor"
+    q=c.query(wql)
+    return {item.Identifier+" "+item.Name:item.Value for item in q}
 
 
 # identifier of openHardwareMonitor table value like "/intelcpu/0/temperature/0"
-def taskOhmTableValue(identifier):
-    if not hasattr(taskOhmTableValue,"tableDict"):
+def taskOhwTableValue(item,include):
+    res={}
+    if not hasattr(taskOhwTableValue,"tableDict"):
         try:
-            taskOhmTableValue.tableDict=_wmiOhmTable()
+            taskOhwTableValue.tableDict=_wmiOhmTable()
         except Exception as e:
             return str(e)
-    tableDict=taskOhmTableValue.tableDict
+    tableDict=taskOhwTableValue.tableDict
 
-    return tableDict.get(identifier,"Не удалось найти значение в таблице Open Hardware Monitor")
+    assert type(include)==list
+
+    print(tableDict)
+
+    print(include)
+
+    for itemKey,itemValue in tableDict.items():
+        filterOk=True
+        for kw in include:
+            if itemKey.find(kw)==-1:
+                filterOk=False
+                break
+        if filterOk:
+            res.update({itemKey:itemValue})
+
+    if len(res)==0:
+        return "Не удалось найти значение в таблице Open Hardware Monitor"
+    elif len(res)==1:
+        return res[list(res.keys())[0]]
+    else:
+        return res
 
 
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
@@ -368,20 +387,36 @@ def taskOhmTableValue(identifier):
 #   timeStamp - value timestamp
 def processHeartBeatTasks(tasksToPoll):
     for taskKey,task in tasksToPoll.items():
+
+        print("got task",taskKey,task)
+
         if task.get('module',None)!='heartbeat':
             continue
 
-        # print("got task",taskKey,task)
-        # task['value']="preved!!!"
+        
+        taskConfig=task.get('config',None)
+        if taskConfig is None:
+            continue
+
+        item=taskConfig.get('item',None)
+        if item is None:
+            continue
+
+        # task['value']={"key1":"value1","key2":"value2"}
         # task['unit']="кг/ам"
 
-        if task['type'] == 'snmp':
-            task['value']=taskSnmp(**task['config'])
-        if task['type'] == 'snmpTableValue':
-            task['value']=taskSnmpTableValue(**task['config'])
-        if task['type'] == 'ohmTableValue':
-            task['value']=taskOhmTableValue(**task['config'])
-        
+        if item=="ohwtable":
+            task['value']=taskOhwTableValue(**taskConfig)
+        elif item=="snmptable":
+            pass
+            #task['value']=taskSnmp(**task['config'])
+            #task['value']=taskSnmpTableValue(**task['config'])
+        else:
+            print("something is wrong")
+
+
+        print ("result:",task['value'])
+
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
         task['timeStamp']=nowDateTime

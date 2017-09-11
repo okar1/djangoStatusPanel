@@ -45,12 +45,17 @@ def threadPoll():
             # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
-            if tasksToPoll:
-                # test all rabbitMQ configs and return first working to mqconf
-                # serverConfig['mq']=[mqConf] -> mqConf (select first working mqconf)
-                mqConf = subs.getMqConf(serverConfig['mq'], server.name, opt["maxMsgTotal"], serverErrors)
+            # test all rabbitMQ configs and return first working to mqconf
+            # serverConfig['mq']=[mqConf] -> mqConf (select first working mqconf)
+            mqConf = subs.getMqConf(serverConfig['mq'], server.name, opt["maxMsgTotal"], serverErrors)
 
             if mqConf:
+                # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
+                tasksToPoll.update(
+                    TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
+                )
+
+            if mqConf and tasksToPoll:
                 mqConsumerId=str(server.id)+" "+server.name
 
                 # opens mq consumer for this server. If it alredy opened - do nothing 
@@ -59,10 +64,6 @@ def threadPoll():
                 # polling RabbitMQ (download messages from consumer), add "idleTime" to tasksToPoll
                 subs.pollMQ(server.name, mqConsumerId,serverErrors,tasksToPoll)
 
-                # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
-                tasksToPoll.update(
-                    TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
-                )
 
                 # send heartbeat tasks request to rabbitmq exchange
                 subs.sendHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)

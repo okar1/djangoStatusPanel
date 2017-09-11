@@ -361,6 +361,17 @@ def calcIddleTime(vTasksToPoll):
 
 
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
+    def updateTaskDisplayName(taskKey, oldDdisplayname, idleTime, value=None, unit=None):
+        res = "{0} ({1}) : {2} сек назад".format(taskKey, oldDdisplayname, idleTime)
+        if value is not None:
+            res+=" получено значение "+str(value)
+        if unit is not None:
+            res+=(" "+unit)
+        return res
+
+
+    tasksToAdd={}
+    tasksToRemove=set()
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
         
@@ -379,8 +390,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     task['style'] = 'ign'
             else:
                 idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
-                task['displayname'] = "{0} ({1}) : {2} сек назад".format(
-                    taskKey, task['displayname'], idleTime)
+
                 if abs(idleTime) > \
                         3 * max(task['period'], pollingPeriodSec):
                     task['style'] = 'rem'
@@ -388,7 +398,21 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 if 'unit' in task.keys() and 'value' in task.keys():
                     unit=task['unit']
                     value=task['value']
-                    task['displayname']+=" получено значение "+str(value)+" "+unit
+                    if type(value)==dict:
+                        for resultKey,resultValue in value.items():
+                            tmpTaskKey=taskKey+"."+resultKey
+                            tmpTask=task.copy()
+                            tmpTask["displayname"]=updateTaskDisplayName(tmpTaskKey,task['displayname'],idleTime,resultValue,unit)
+                            tasksToAdd.update({tmpTaskKey:tmpTask})
+                            tasksToRemove.add(taskKey)
+                    else:
+                        task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime,value,unit)
+                else:
+                    task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime)
+
+    for t2r in tasksToRemove:
+        tasksToPoll.pop(t2r)
+    tasksToPoll.update(tasksToAdd)
 
 
 # create box for every agent (controlblock)

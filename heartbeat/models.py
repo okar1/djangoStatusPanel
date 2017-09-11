@@ -160,45 +160,48 @@ class ServerGroups(models.Model):
 # If equals some of qos agentkeys - than heartbeat records and qos records are united in single box on gui
 # if heartbeat agentkey not equals none of qos agentkey - than new box for heartbeat agent will be created
 class Hosts(models.Model):
-    agentkey = models.CharField("Ключ БК", max_length=255, blank=False, null=False, editable=True)
-    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
-    comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True)
+    name = models.CharField("Имя узла", max_length=255, blank=False, null=False, editable=True, default="")
+    key = models.CharField("Ключ узла", max_length=255, blank=False, null=False, editable=True, default="")
+    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
+    comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
-        verbose_name = 'блок контроля'
-        verbose_name_plural = 'heartbeat - блоки контроля (hosts)'
+        verbose_name = 'узел сети'
+        verbose_name_plural = 'heartbeat - узлы сети (hosts)'
 
     def __str__(self):
-        return self.agentkey
+        return self.name
 
 
 # settings of heartbeat data collectors 
 class Items(models.Model):
-    name = models.CharField("Имя", max_length=255, blank=False, null=False, editable=True)
+    name = models.CharField("Имя параметра", max_length=255, blank=False, null=False, editable=True, default="")
+    key = models.CharField("Ключ параметра", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
-    type = models.CharField("Тип опроса", max_length=255, blank=False, null=False, editable=True)
-    unit = models.CharField("Единица измерения", max_length=255, blank=False, null=False, editable=True)
+    unit = models.CharField("Единица измерения", max_length=255, blank=False, null=False, editable=True, default="")
     config = models.TextField(null=False, default="")
-    comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True)
+    comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     
     class Meta:
-        verbose_name = 'сборщик данных'
-        verbose_name_plural = 'heartbeat - сборщики данных (items)'
+        verbose_name = 'элемент данных'
+        verbose_name_plural = 'heartbeat - элементы данных (items)'
 
     def __str__(self):
         return self.name
 
 # alarm treshholds for items. Each item can contain 0 or more triggers
 class Triggers(models.Model):
-    item = models.ForeignKey(Items,verbose_name="Сборщик данных", blank=False, null=False, editable=True)
+    name = models.CharField("Имя триггера", max_length=255, blank=False, null=False, editable=True, default="")
     # = >= <= != < >
-    operator = models.CharField("Тип порога", max_length=2, blank=False, null=False, editable=True)
-    value = models.CharField("Значение порога", max_length=255, blank=False, null=False, editable=True)
-    severity = models.CharField("Важность", max_length=20, blank=False, null=False, editable=True)
+    operator = models.CharField("Результат: условие", max_length=2, blank=False, null=False, editable=True, default="")
+    value = models.CharField("Результат: значение", max_length=255, blank=False, null=False, editable=True, default="")
+    countoperator = models.CharField("Кол-во результатов: условие", max_length=2, blank=False, null=False, editable=True, default="")
+    countvalue = models.CharField("Кол-во результатов: значение", max_length=255, blank=False, null=False, editable=True, default="")
+    severity = models.CharField("Важность", max_length=20, blank=False, null=False, editable=True, default="")
 
     class Meta:
-        verbose_name = 'порог оповещения'
-        verbose_name_plural = 'heartbeat - пороги оповещения (triggers)'
+        verbose_name = 'триггер'
+        verbose_name_plural = 'heartbeat - триггеры'
 
 # hosts, items --> server mappings
 # each server can contain 0 or more mappings
@@ -206,8 +209,9 @@ class TaskSets(models.Model):
     #related_name="membership_invites", on_delete=models.CASCADE
     name = models.CharField("Имя", max_length=255, blank=False, null=False, editable=True)
     server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True)
-    hosts = models.ManyToManyField(Hosts, verbose_name="Блоки контроля", blank=True, editable=True) 
-    items = models.ManyToManyField(Items, verbose_name="Сборщики данных", blank=True, editable=True )
+    hosts = models.ManyToManyField(Hosts, verbose_name="Узлы сети", blank=True, editable=True) 
+    items = models.ManyToManyField(Items, verbose_name="Элементы данных", blank=True, editable=True )
+    triggers = models.ManyToManyField(Triggers, verbose_name="Триггеры", blank=True, editable=True )
     enabled = models.BooleanField("Включена", blank=False, null=False, editable=True, default=True)
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True)
     
@@ -220,12 +224,12 @@ class TaskSets(models.Model):
         sql="""select  
             Distinct ON (hosts.id,items.id,enabled)
             items.id || '-' || hosts.id as "id",
-            items.id as "itemid",
-            items.name,
-            items.type,
+            items.name as "itemname",
+            items.key as "itemkey",
             items.unit,
             items.config,
-            hosts.agentkey,
+            hosts.name as "hostname",
+            hosts.key as "hostkey",
             bool_or(ts.enabled and hosts.enabled and items.enabled) as "enabled"
             from
             heartbeat_tasksets as "ts",
@@ -243,24 +247,18 @@ class TaskSets(models.Model):
             .format(serverid=str(int(server.id)))
         
         tasks=TaskSets.objects.raw(sql)
-        # taskKey=agentkey+'.Heartbeat'+'.'+task.itemid
         return {
-            task.agentkey + '.Heartbeat.' + str(task.itemid): {
-                "agentKey":task.agentkey,
-                # for heartbeat tasks agentKey and AgentName are the same
-                "agentName":task.agentkey,
+            task.hostkey + '.heartbeat.' + task.itemkey : {
+                "agentKey":task.hostkey,
+                "agentName":task.hostname,
                 "module":"heartbeat",
-                "displayname":task.name,
-                "type":task.type,
+                "displayname":task.itemname,
                 "unit":task.unit,
                 "config":json.loads(task.config),
                 "period":pollingPeriodSec,
                 "enabled":task.enabled}
                 for task in tasks
         }
-
-
-
 
     class Meta:
         verbose_name = 'задача сбора данных'

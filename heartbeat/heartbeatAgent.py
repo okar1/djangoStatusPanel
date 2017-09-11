@@ -355,10 +355,6 @@ def taskOhwTableValue(item,include):
 
     assert type(include)==list
 
-    print(tableDict)
-
-    print(include)
-
     for itemKey,itemValue in tableDict.items():
         filterOk=True
         for kw in include:
@@ -368,6 +364,8 @@ def taskOhwTableValue(item,include):
         if filterOk:
             res.update({itemKey:itemValue})
 
+    if not tableDict:
+        return "Не удалось загрузить таблицу Open Hardware Monitor. Проверьте работу ПО."
     if len(res)==0:
         return "Не удалось найти значение в таблице Open Hardware Monitor"
     elif len(res)==1:

@@ -332,12 +332,49 @@ def sendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
 
 
 # receive heartbeat tasks request from rabbitmq queue
-def receiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
+def receiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
     errors=heartbeatAgent.receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
     serverErrors += formatErrors(errors, serverName, "hbReceiver")
     con.close()
 
+    # process composite heartbeat tasks decomposing
+    # these tasks returns >1 values in dictionary like 
+    # {key1: value1, key2: value2 ....}
+    tasksToAdd={}
+    tasksToRemove=set()
+    for taskKey,task in tasksToPoll.items():
+        if task.get("module",None)=='heartbeat' and task.get('enabled',False):
+
+            if "value" in task.keys():
+                # hb value received and this is composite task
+                # decompose composite task to some simple tasks
+                value=task['value']
+                if type(value)==dict:
+                    for resultKey,resultValue in value.items():
+                        childTaskKey=taskKey+"."+resultKey
+                        childTask=task.copy()
+                        # tasks with "parentkey" property set are the children tasks
+                        # ex. cpu load of core #1 #2 ... #24 are the children tasks of "cpu load"
+                        childTask["parentkey"]=taskKey
+                        tasksToAdd.update({childTaskKey:childTask})
+                        tasksToRemove.add(taskKey)
+            else:
+                # hb value not received
+                # check if there are early decomposed (children) tasks in oldTasks with 
+                # parentkey == current task
+                oldChildrenTasks={k:v for k,v in oldTasks.items() 
+                                        if v.get("parentkey",None)==taskKey}
+                if oldChildrenTasks:
+                    # remove this composite task without value
+                    tasksToRemove.add(taskKey)
+                    # add early decomposed (children) tasks instead
+                    tasksToAdd.update(oldChildrenTasks)
+
+    # actually do add and remove for composite tasks
+    for t2r in tasksToRemove:
+        tasksToPoll.pop(t2r)
+    tasksToPoll.update(tasksToAdd)
 
 def useOldParameters(vTasksToPoll, oldTasks):
     # use some parameters from oldTasks if it absent in taskstopoll
@@ -370,8 +407,6 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         return res
 
 
-    tasksToAdd={}
-    tasksToRemove=set()
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
         
@@ -396,23 +431,10 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     task['style'] = 'rem'
 
                 if 'unit' in task.keys() and 'value' in task.keys():
-                    unit=task['unit']
-                    value=task['value']
-                    if type(value)==dict:
-                        for resultKey,resultValue in value.items():
-                            tmpTaskKey=taskKey+"."+resultKey
-                            tmpTask=task.copy()
-                            tmpTask["displayname"]=updateTaskDisplayName(tmpTaskKey,task['displayname'],idleTime,resultValue,unit)
-                            tasksToAdd.update({tmpTaskKey:tmpTask})
-                            tasksToRemove.add(taskKey)
-                    else:
-                        task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime,value,unit)
+                    task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime,task['value'],task['unit'])
                 else:
                     task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime)
-
-    for t2r in tasksToRemove:
-        tasksToPoll.pop(t2r)
-    tasksToPoll.update(tasksToAdd)
+        # endif task enabled
 
 
 # create box for every agent (controlblock)
@@ -424,10 +446,8 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
     if tasksToPoll is not None:
         for taskKey, task in tasksToPoll.items():
             # agentName is used for box caption
-            agentName = serverName + " " + task['agentName']
-            # truncate agentName>25 symbols
-            if len(agentName)>25:
-                agentName=agentName[:25]+"..."
+            # agentName = serverName + " " + task['agentName']
+            agentName = task['agentName']
 
             if agentName in agents.keys():
                 curTasks = agents[agentName]

@@ -147,7 +147,7 @@ class ServerGroups(models.Model):
     name = models.CharField("Имя", max_length=255,
                             blank=False, null=False, editable=True)
     servers = models.ManyToManyField(
-        Servers, blank=True, verbose_name="Серверы", editable=True)
+        Servers, blank=False, verbose_name="Серверы", editable=True)
 
     class Meta:
         verbose_name = 'группа серверов'

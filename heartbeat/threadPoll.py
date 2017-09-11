@@ -69,7 +69,7 @@ def threadPoll():
                 subs.sendHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)
                 
                 # receive heartbeat tasks request from rabbitmq queue
-                subs.receiveHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)
+                subs.receiveHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors,oldTasks)
 
                 # debug mode for heartbeatAgent: disable "sendHeartBeatTasks" and "receiveHeartBeatTasks" via amqp
                 # and call "processHeartBeatTasks" directly

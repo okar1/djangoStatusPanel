@@ -357,6 +357,7 @@ def receiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
                         # tasks with "parentkey" property set are the children tasks
                         # ex. cpu load of core #1 #2 ... #24 are the children tasks of "cpu load"
                         childTask["parentkey"]=taskKey
+                        childTask["value"]=resultValue
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
             else:
@@ -368,22 +369,32 @@ def receiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
                 if oldChildrenTasks:
                     # remove this composite task without value
                     tasksToRemove.add(taskKey)
+                    
+                    newChildrenTasks={k:task.copy() for k in oldTasks.keys()}
+                    # add some parameters from oldChildrenTass to NewChildrenTasks
+                    useOldParameters(newChildrenTasks,oldChildrenTasks)
                     # add early decomposed (children) tasks instead
-                    tasksToAdd.update(oldChildrenTasks)
+                    tasksToAdd.update(newChildrenTasks)
+                    # tasksToAdd.update(oldChildrenTasks)
 
     # actually do add and remove for composite tasks
     for t2r in tasksToRemove:
         tasksToPoll.pop(t2r)
     tasksToPoll.update(tasksToAdd)
 
+
+# move some parameters from previous poll if they are absent in current poll
 def useOldParameters(vTasksToPoll, oldTasks):
-    # use some parameters from oldTasks if it absent in taskstopoll
     for taskKey, task in vTasksToPoll.items():
         if taskKey in oldTasks.keys():
             if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
             if 'value' not in task.keys() and ('value' in oldTasks[taskKey].keys()):
                 task['value'] = oldTasks[taskKey]['value']
+            if 'unit' not in task.keys() and ('unit' in oldTasks[taskKey].keys()):
+                task['unit'] = oldTasks[taskKey]['unit']
+            if 'parentkey' not in task.keys() and ('parentkey' in oldTasks[taskKey].keys()):
+                task['parentkey'] = oldTasks[taskKey]['parentkey']
 
 
 def calcIddleTime(vTasksToPoll):
@@ -414,6 +425,11 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             task['displayname'] = "{0} ({1}) : Задача отключена".format(
                 taskKey, task['displayname'])
             task['style'] = 'ign'
+        
+        elif task.get('error',None) is not None:
+            task['style'] = 'rem'
+            task['displayname'] = "{0} ({1}) : Ошибка : {2}".format(
+                    taskKey, task['displayname'],task['error'])
         else:
             if "idleTime" not in task.keys():
                 task['displayname'] = "{0} ({1}) : Данные не получены".format(

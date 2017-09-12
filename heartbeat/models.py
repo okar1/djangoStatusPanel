@@ -163,6 +163,7 @@ class Hosts(models.Model):
     name = models.CharField("Имя узла", max_length=255, blank=False, null=False, editable=True, default="")
     key = models.CharField("Ключ узла", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
+    config = models.TextField(null=False, blank=True, default="")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
@@ -178,7 +179,7 @@ class Items(models.Model):
     name = models.CharField("Имя параметра", max_length=255, blank=False, null=False, editable=True, default="")
     key = models.CharField("Ключ параметра", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
-    unit = models.CharField("Единица измерения", max_length=255, blank=False, null=False, editable=True, default="")
+    unit = models.CharField("Единица измерения", max_length=255, blank=True, null=False, editable=True, default="")
     config = models.TextField(null=False, default="")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     
@@ -227,9 +228,10 @@ class TaskSets(models.Model):
             items.name as "itemname",
             items.key as "itemkey",
             items.unit,
-            items.config,
+            items.config as "itemconfig",
             hosts.name as "hostname",
             hosts.key as "hostkey",
+            hosts.config as "hostconfig",
             bool_or(ts.enabled and hosts.enabled and items.enabled) as "enabled"
             from
             heartbeat_tasksets as "ts",
@@ -247,18 +249,52 @@ class TaskSets(models.Model):
             .format(serverid=str(int(server.id)))
         
         tasks=TaskSets.objects.raw(sql)
-        return {
-            task.hostkey + '.heartbeat.' + task.itemkey : {
-                "agentKey":task.hostkey,
-                "agentName":task.hostname,
-                "module":"heartbeat",
-                "displayname":task.itemname,
-                "unit":task.unit,
-                "config":json.loads(task.config),
-                "period":pollingPeriodSec,
-                "enabled":task.enabled}
-                for task in tasks
-        }
+        
+        # combines itemConfig and HostConfig and converts it to JSON
+        def getTaskConfig(sItemConfig,sHostConfig,itemKey):
+            # string sItemConfig like {"item":"ohwtable","include":["cpu","load"]}
+            # string sHostConfig (optional) like {itemkey:{paramToOverride1: valueToOverride1, paramToOverride2: ...}}
+            
+            if sItemConfig=="":
+                taskConfig={}
+            else:                
+                try:
+                    taskConfig=json.loads(sItemConfig)
+                except:
+                    raise Exception("неправильная конфигурация элемента данных")
+                
+            # if hostConfig has any parameters - add it to taskConfig
+            if sHostConfig!="":
+                try:
+                    hostConfig=json.loads(sHostConfig)
+                except:
+                    raise Exception("неправильная конфигурация узла сети")
+
+                if itemKey in hostConfig.keys():
+                    # host parameters has priority and override same-named item patameters 
+                    taskConfig.update(hostConfig[itemKey])
+            return taskConfig
+
+        res={}
+        for task in tasks:
+            taskKey=task.hostkey + '.heartbeat.' + task.itemkey
+            taskValue={
+                    "agentKey":task.hostkey,
+                    "agentName":task.hostname,
+                    "module":"heartbeat",
+                    "displayname":task.itemname,
+                    "unit":task.unit,
+                    "period":pollingPeriodSec,
+                    "enabled":task.enabled
+            }
+            try:
+                taskConfig=getTaskConfig(task.itemconfig,task.hostconfig,task.itemkey)
+            except Exception as e:
+                taskConfig={}
+                taskValue['error']=str(e)
+            taskValue["config"]=taskConfig
+            res[taskKey]=taskValue
+        return res
 
     class Meta:
         verbose_name = 'задача сбора данных'

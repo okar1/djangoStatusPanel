@@ -84,13 +84,19 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             # process only enabled tasks
             if not task.get('enabled',False):
                 continue
+            # skip sending error tasks from server
+            if task.get('error',False):
+                continue
             timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
             msgBody=task['config']
         else:
-            msgBody=task['value']
+            msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
 
         msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
+
+        if "error" in task.keys():
+            msgHeaders['error']=task['error']
 
         channel.basic_publish(
             exchange=sendToExchange,
@@ -108,10 +114,6 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
 
 
 def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
-    # when amount of messages in queue becomes less than border value (ex 100)
-    # than we get only this amount of messages (ex 100) and over
-    # this is made to prevent long delays on queues with high incoming message rate
-    messageBorderValue=100
 
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
@@ -126,8 +128,6 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         return vErrors
 
     mqMessages = []
-    startBorderCounter=False
-    borderCounter=0
     while True:
         # connect and check errors (amqp)
         getOk = None
@@ -138,22 +138,11 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             return vErrors
 
         if getOk:
-            if mqMessage[0].content_type != 'application/json':
+            mqMessage=[getOk]+mqMessage
+            if mqMessage[1].content_type != 'application/json':
                 vErrors += ["Неверный тип данных " + mqMessage[0].content_type]
                 return vErrors
             mqMessages += [mqMessage]
-            
-            if not startBorderCounter:
-                messagesLeft=getOk.message_count
-
-                if messagesLeft<messageBorderValue:
-                    startBorderCounter=True
-                    borderCounter=messagesLeft
-
-            if startBorderCounter:
-                borderCounter-=1
-                if borderCounter<=0:
-                    break
         else:
             break
     # endwhile messages in rabbit queue            
@@ -162,7 +151,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
     for msg in mqMessages:
 
         try:
-            headers = msg[0].headers
+            headers = msg[1].headers
             taskKey=headers['key']
             taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
@@ -174,7 +163,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
 
         # parse message payload
         try:
-            msgBody = json.loads((msg[1]).decode('utf-8'))
+            msgBody = json.loads((msg[2]).decode('utf-8'))
             # msgBody['value']=777
         except Exception as e:
             vErrors += ['Ошибка обработки сообщения: неверное содержимое.']
@@ -188,8 +177,10 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             tasksToPoll[taskKey]['value']=msgBody
             tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
             tasksToPoll[taskKey]['unit']=taskUnit
+            if "error" in headers.keys():
+                tasksToPoll[taskKey]['error']=headers['error']
         else:
-            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':getOk.routing_key,
+            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
                                   'unit':taskUnit,'config':msgBody}
     # endfor messages in current request
     return vErrors
@@ -310,7 +301,7 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
     return res
 
 
-def taskSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public', indexcol=1, indexcolvalue="", datacol=2):
+def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public', indexcol=1, datacol=2):
     if not hasattr(taskSnmpTableValue,"tableDict"):
         taskSnmpTableValue.tableDict={}
     tableDict=taskSnmpTableValue.tableDict
@@ -325,13 +316,42 @@ def taskSnmpTableValue(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity=
     else:
         table=tableDict[tableId]
 
+    res={}
+    assert type(include)==list
 
-    for row in table.values():
+    for row in table.values()::
         if len(row)-1<max(indexcol,datacol):
-            return "В настройках задан неверный номер столбца"
+            raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
+        
+        key=row[indexcol]
+
+        filterOk=True
+        for kw in include:
+            if itemKey.find(kw)==-1: ???????
+                filterOk=False
+                break
+        if filterOk:
+            res.update({itemKey:itemValue})
+
+
+
         if row[indexcol]==indexcolvalue:
             return row[datacol]
     return "Не удалось найти значение в таблице SNMP"
+
+
+
+
+
+    if not tableDict:
+        raise Exception("Не удалось загрузить данные Open Hardware Monitor. Проверьте работу ПО.")
+    if len(res)==0:
+        raise Exception("Не удалось найти значение в таблице Open Hardware Monitor")
+    elif len(res)==1:
+        return res[list(res.keys())[0]]
+    else:
+        return res
+
 
 
 # get wmi table from OpenHardwaqreMonitor like {Identifier:value,...}
@@ -344,7 +364,7 @@ def _wmiOhmTable():
 
 
 # identifier of openHardwareMonitor table value like "/intelcpu/0/temperature/0"
-def taskOhwTableValue(item,include):
+def taskOhwTableValue(include):
     res={}
     if not hasattr(taskOhwTableValue,"tableDict"):
         try:
@@ -365,13 +385,23 @@ def taskOhwTableValue(item,include):
             res.update({itemKey:itemValue})
 
     if not tableDict:
-        return "Не удалось загрузить таблицу Open Hardware Monitor. Проверьте работу ПО."
+        raise Exception("Не удалось загрузить данные Open Hardware Monitor. Проверьте работу ПО.")
     if len(res)==0:
-        return "Не удалось найти значение в таблице Open Hardware Monitor"
+        raise Exception("Не удалось найти значение в таблице Open Hardware Monitor")
     elif len(res)==1:
         return res[list(res.keys())[0]]
     else:
         return res
+
+
+# check that keys in config are corresponding filterset template
+# removes unneed keys, raise exception if some key is absent
+def filterConfigParameters(config,filterSet):
+    assert type(config)==dict
+    res={k:v for k,v in config.items() if k in filterSet}
+    if len(res)!=len(filterSet):
+        raise Exception("неправильная конфигурация элемента данных")
+    return res
 
 
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
@@ -403,17 +433,29 @@ def processHeartBeatTasks(tasksToPoll):
         # task['value']={"key1":"value1","key2":"value2"}
         # task['unit']="кг/ам"
 
-        if item=="ohwtable":
-            task['value']=taskOhwTableValue(**taskConfig)
-        elif item=="snmptable":
-            pass
-            #task['value']=taskSnmp(**task['config'])
-            #task['value']=taskSnmpTableValue(**task['config'])
-        else:
-            print("something is wrong")
+        try:
+            if item=="ohwtable":
+                filterSet={"include"}
+                task['value']=taskOhwTableValue(**filterConfigParameters(taskConfig,filterSet))
+            elif item=="snmptable":
+                filterSet={"oid","host","port", "readcommunity", "indexcol", "datacol", "include"}
+                task['value']=taskSnmpTableValue(**filterConfigParameters(taskConfig,filterSet))
+                #task['value']=taskSnmp(**task['config'])
+                #task['value']=taskSnmpTableValue(**task['config'])
+            else:
+                task['error']="Неизвестный тип элемента данных: "+item
+        except Exception as e:
+            task['error']=str(e)
 
 
-        print ("result:",task['value'])
+
+        if ('value' not in task.keys()) and ('error' not in task.keys()):
+            task['error']="Значение не вычислено"
+        if 'value' in task.keys():
+            print ("result:",task['value'])
+        if 'error' in task.keys():
+            print("error:",task['error'])
+
 
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)

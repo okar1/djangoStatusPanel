@@ -153,7 +153,11 @@ def pollDb(dbConfig, serverName, vServerErrors):
     # check all db in dbconf
     for dbConf in dbConfig:
         try:
-            curConnection = qosDb.getDbConnection(dbConf)
+            if dbConf.get('server','')!='':
+                curConnection = qosDb.getDbConnection(dbConf)
+            else:
+                continue
+
         except Exception as e:
             errors += [str(e)]
             continue
@@ -600,15 +604,14 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
     agentHasErrors = set()
     if tasksToPoll is not None:
         for taskKey, task in tasksToPoll.items():
-            # agentName is used for box caption
-            # agentName = serverName + " " + task['agentName']
-            agentName = task['agentName']
+            # boxName is used for box caption
+            boxName = task['agentName']
 
-            if agentName in agents.keys():
-                curTasks = agents[agentName]
+            if boxName in agents.keys():
+                curTasks = agents[boxName]
             else:
                 curTasks = []
-                agents[agentName] = curTasks
+                agents[boxName] = curTasks
 
             taskData = {"id": serverName + '.' +
                         taskKey, "name": task['displayname']}
@@ -618,7 +621,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
             if taskStyle is not None:
                 taskData.update({"style": taskStyle})
                 if taskStyle == 'rem':
-                    agentHasErrors.add(agentName)
+                    agentHasErrors.add(boxName)
 
             curTasks += [taskData]
 
@@ -668,7 +671,8 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
 
 
 def pollResultSort(vPollResult):
-    # sort pollresults, make boxes with errors first
+    # sort pollresults like servername & boxname, make boxes with errors first
+    # also look views.py/makeBoxCaption for box caption rule
     vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['pollServer']+" "+v['name'])
 
 

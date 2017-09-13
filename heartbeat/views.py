@@ -39,6 +39,8 @@ class MainView(BoxFormView):
         def makeBoxCaption(key,value,serverName,addServerName):
             if key=="name":
                 if addServerName and serverName!=value:
+                    # prepend server name to box caption
+                    # also look threadpollsubs.py/pollResultSort for sorting rule
                     res=serverName+" "+value
                 else:
                     res=value

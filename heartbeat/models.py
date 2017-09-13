@@ -277,7 +277,8 @@ class TaskSets(models.Model):
 
         res={}
         for task in tasks:
-            taskKey=task.hostkey + '.heartbeat.' + task.itemkey
+            # taskKey=task.hostkey + '.heartbeat.' + task.itemkey
+            taskKey=task.hostname + " : heartbeat : " + task.itemname
             taskValue={
                     "agentKey":task.hostkey,
                     "agentName":task.hostname,
@@ -294,6 +295,8 @@ class TaskSets(models.Model):
                 taskValue['error']=str(e)
             taskValue["config"]=taskConfig
             res[taskKey]=taskValue
+        
+        print(res)
         return res
 
     class Meta:

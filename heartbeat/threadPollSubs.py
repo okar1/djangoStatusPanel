@@ -669,7 +669,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
 
 def pollResultSort(vPollResult):
     # sort pollresults, make boxes with errors first
-    vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['name'])
+    vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['pollServer']+" "+v['name'])
 
 
 def pollResultCalcProgress(vPollResult):

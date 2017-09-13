@@ -161,7 +161,7 @@ class ServerGroups(models.Model):
 # if heartbeat agentkey not equals none of qos agentkey - than new box for heartbeat agent will be created
 class Hosts(models.Model):
     name = models.CharField("Имя узла", max_length=255, blank=False, null=False, editable=True, default="")
-    key = models.CharField("Ключ узла", max_length=255, blank=False, null=False, editable=True, default="")
+    key = models.CharField("Ключ узла (routing key)", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
     config = models.TextField(null=False, blank=True, default="")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
@@ -177,7 +177,7 @@ class Hosts(models.Model):
 # settings of heartbeat data collectors 
 class Items(models.Model):
     name = models.CharField("Имя параметра", max_length=255, blank=False, null=False, editable=True, default="")
-    key = models.CharField("Ключ параметра", max_length=255, blank=False, null=False, editable=True, default="")
+    key = models.CharField("Ключ параметра (parameter key)", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
     unit = models.CharField("Единица измерения", max_length=255, blank=True, null=False, editable=True, default="")
     config = models.TextField(null=False, default="")

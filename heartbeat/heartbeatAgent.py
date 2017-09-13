@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from collections import OrderedDict
 
+# pyasn1 help http://www.red-bean.com/doc/python-pyasn1/pyasn1-tutorial.html#1.1.7
 from pysnmp import hlapi as snmp
 from pysnmp.proto.rfc1905 import NoSuchObject # wrong OID
 from pysnmp.proto.rfc1902 import  TimeTicks #TimeTicks
@@ -20,6 +21,8 @@ from pysnmp.proto.rfc1902 import OctetString #OctetString
 from pyasn1.type.univ import ObjectIdentifier
 
 import wmi
+
+# import binascii
 
 mqConf={
     "server":'127.0.0.1',
@@ -69,7 +72,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
     channel = mqAmqpConnection.channel()
 
     try:
-        channel.exchange_declare(exchange=sendToExchange, exchange_type='topic')
+        channel.exchange_declare(exchange=sendToExchange, exchange_type='topic', durable=True)
     except Exception as e:
         errors+= [str(e)]
         return errors
@@ -192,10 +195,34 @@ def _snmpFormatValue(v):
         res="Указан неверный OID"
     elif sum([issubclass(_type,baseType) for baseType in [TimeTicks,Integer,Integer32,Gauge32,Counter32,Counter64,Unsigned32]]):
         res=int(v)
-    elif sum([issubclass(_type,baseType) for baseType in [ObjectIdentity,ObjectIdentifier,IpAddress,OctetString]]):
+    elif sum([issubclass(_type,baseType) for baseType in [ObjectIdentity,ObjectIdentifier,IpAddress]]):
         res=str(v.prettyPrint())
+    elif sum([issubclass(_type,baseType) for baseType in [OctetString]]):
+        pp=v.prettyPrint()
+        s=str(v)
+        # sometimes prettyPrint returns hex values instead of string because of trailing 00 byte
+        # if we got not a string - try to remove trailing 00
+        # if we got a string after it - use this value
+        if pp!=s:
+            if len(v)>0:
+                if v[len(v)-1]==0:
+                    v2=v[:len(v)-1]
+                    pp2=v2.prettyPrint()
+                    s2=str(v2)
+                    if pp2==s2:
+                        v=v2
+        res=v.prettyPrint()
     else:
         res="Неизвестный тип данных "+str(_type)
+    
+    # if issubclass(_type,OctetString):
+    #     print("v=",v)
+    #     # print("res=",res)
+    #     print("pp=",v.prettyPrint())
+    #     print("bytes=",v.asOctets())
+    #     print("bytes-decode=",v.asOctets().decode('iso-8859-1'))
+    #     print("str=",str(v))
+    #     print("hex=",binascii.hexlify(v.asOctets()).decode("utf8"))
     return res
 
 
@@ -298,6 +325,7 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
         else:
             # error example (RequestTimedOut('No SNMP response received before timeout',), 0, 0, [])
             raise Exception(str(reply[0]))
+    # print(res)
     return res
 
 
@@ -308,10 +336,7 @@ def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readc
 
     tableId=oid+"&"+host+"&"+str(port)+"&"+readcommunity
     if tableId not in tableDict.keys():
-        try:
-            table=_snmpGetTable(oid,host,port,readcommunity)
-        except Exception as e:
-            return str(e)
+        table=_snmpGetTable(oid,host,port,readcommunity)
         tableDict[tableId]=table
     else:
         table=tableDict[tableId]
@@ -319,34 +344,26 @@ def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readc
     res={}
     assert type(include)==list
 
-    for row in table.values()::
+    for row in table.values():
         if len(row)-1<max(indexcol,datacol):
             raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
         
-        key=row[indexcol]
-
+        itemKey=row[indexcol]
+        itemValue=row[datacol]
+        print(itemKey)
+        print(itemValue)
         filterOk=True
         for kw in include:
-            if itemKey.find(kw)==-1: ???????
+            if itemKey.find(kw)==-1:
                 filterOk=False
                 break
         if filterOk:
             res.update({itemKey:itemValue})
 
-
-
-        if row[indexcol]==indexcolvalue:
-            return row[datacol]
-    return "Не удалось найти значение в таблице SNMP"
-
-
-
-
-
-    if not tableDict:
-        raise Exception("Не удалось загрузить данные Open Hardware Monitor. Проверьте работу ПО.")
+    if not table:
+        raise Exception("Не удалось загрузить таблицу SNMP. Проверьте настройки ПО и доступность оборудования.")
     if len(res)==0:
-        raise Exception("Не удалось найти значение в таблице Open Hardware Monitor")
+        raise Exception("Не удалось найти значение в таблице SNMP")
     elif len(res)==1:
         return res[list(res.keys())[0]]
     else:
@@ -416,47 +433,42 @@ def filterConfigParameters(config,filterSet):
 def processHeartBeatTasks(tasksToPoll):
     for taskKey,task in tasksToPoll.items():
 
+        print("*********")
         print("got task",taskKey,task)
 
         if task.get('module',None)!='heartbeat':
-            continue
-
-        
-        taskConfig=task.get('config',None)
-        if taskConfig is None:
-            continue
-
-        item=taskConfig.get('item',None)
-        if item is None:
-            continue
-
-        # task['value']={"key1":"value1","key2":"value2"}
-        # task['unit']="кг/ам"
-
-        try:
-            if item=="ohwtable":
-                filterSet={"include"}
-                task['value']=taskOhwTableValue(**filterConfigParameters(taskConfig,filterSet))
-            elif item=="snmptable":
-                filterSet={"oid","host","port", "readcommunity", "indexcol", "datacol", "include"}
-                task['value']=taskSnmpTableValue(**filterConfigParameters(taskConfig,filterSet))
-                #task['value']=taskSnmp(**task['config'])
-                #task['value']=taskSnmpTableValue(**task['config'])
+            task['error']="Указано неверное имя модуля"
+        else:
+            taskConfig=task.get('config',None)
+            if taskConfig is None or type(taskConfig)!=dict:
+                task['error']="Не заданы настройки элемента данных"
             else:
-                task['error']="Неизвестный тип элемента данных: "+item
-        except Exception as e:
-            task['error']=str(e)
+                item=taskConfig.get('item',None)
+                if item is None:
+                    task['error']="В настройках элемента данных не задано значение item"
+                else:
+
+                    # task['value']={"key1":"value1","key2":"value2"}
+                    # task['unit']="кг/ам"
+
+                    try:
+                        if item=="ohwtable":
+                            filterSet={"include"}
+                            task['value']=taskOhwTableValue(**filterConfigParameters(taskConfig,filterSet))
+                        elif item=="snmptable":
+                            filterSet={"oid","host","port", "readcommunity", "indexcol", "datacol", "include"}
+                            task['value']=taskSnmpTableValue(**filterConfigParameters(taskConfig,filterSet))
+                        else:
+                            task['error']="Неизвестный тип элемента данных: "+item
+                    except Exception as e:
+                        task['error']=str(e)
 
 
+                    if ('value' not in task.keys()) and ('error' not in task.keys()):
+                        task['error']="Значение не вычислено"
+                        
 
-        if ('value' not in task.keys()) and ('error' not in task.keys()):
-            task['error']="Значение не вычислено"
-        if 'value' in task.keys():
-            print ("result:",task['value'])
-        if 'error' in task.keys():
-            print("error:",task['error'])
-
-
+        print ("result:",task)
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
         task['timeStamp']=nowDateTime
@@ -475,4 +487,5 @@ if __name__ == '__main__':
     if errors:
         for e in errors:
             print(e)
+    print("*********")
     print("agent end")

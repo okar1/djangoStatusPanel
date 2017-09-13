@@ -4,10 +4,135 @@ import pika
 import time
 from datetime import datetime
 from . import qosDb
-from . import heartbeatAgent
 from .threadMqConsumers import MqConsumers
 
 timeStampFormat="%Y%m%d%H%M%S"
+
+def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
+    if not mqAmqpConnection:
+        return ['Соединение с RabbitMQ не установлено']
+    
+    errors=[]
+
+    channel = mqAmqpConnection.channel()
+
+    try:
+        channel.exchange_declare(exchange=sendToExchange, exchange_type='topic', durable=True)
+    except Exception as e:
+        errors+= [str(e)]
+        return errors
+
+    for taskKey, task in tasksToPoll.items():
+        
+        msgRoutingKey=task['agentKey']        
+        if serverMode:
+            # process only heartbeat tasks
+            if task.get('module',None)!='heartbeat':
+                continue
+            # process only enabled tasks
+            if not task.get('enabled',False):
+                continue
+            # skip sending error tasks from server
+            if task.get('error',False):
+                continue
+            timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
+            msgBody=task['config']
+        else:
+            msgBody=task.get('value',"")
+            timeStamp=task['timeStamp']
+
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
+
+        if "error" in task.keys():
+            msgHeaders['error']=task['error']
+
+        channel.basic_publish(
+            exchange=sendToExchange,
+            routing_key=msgRoutingKey,
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # make message persistent
+                content_type='application/json',
+                content_encoding='UTF-8',
+                priority=0,
+                expiration="86400000",
+                headers=msgHeaders),
+            body=json.dumps(msgBody).encode('UTF-8')
+        )
+    return errors
+
+
+def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
+
+    if not mqAmqpConnection:
+        return ['Соединение с RabbitMQ не установлено']
+    vErrors=[]
+
+    channel = mqAmqpConnection.channel()
+
+    try:
+        channel.queue_declare(queue=receiveFromQueue, durable=True,arguments={'x-message-ttl':1800000})
+    except Exception as e:
+        vErrors+= [str(e)]
+        return vErrors
+
+    mqMessages = []
+    while True:
+        # connect and check errors (amqp)
+        getOk = None
+        try:
+            getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
+        except Exception as e:
+            vErrors += [str(e)]
+            return vErrors
+
+        if getOk:
+            mqMessage=[getOk]+mqMessage
+            if mqMessage[1].content_type != 'application/json':
+                vErrors += ["Неверный тип данных " + mqMessage[0].content_type]
+                return vErrors
+            mqMessages += [mqMessage]
+        else:
+            break
+    # endwhile messages in rabbit queue            
+
+    # now we have list of mqMessages
+    for msg in mqMessages:
+
+        try:
+            headers = msg[1].headers
+            taskKey=headers['key']
+            taskTimeStamp=headers['timestamp']
+            taskUnit=headers['unit']
+        except Exception as e:
+            errStr = "Ошибка обработки сообщения: неверный заголовок."
+            if errStr not in vErrors:
+                vErrors += [errStr]
+            continue
+
+        # parse message payload
+        try:
+            msgBody = json.loads((msg[2]).decode('utf-8'))
+            # msgBody['value']=777
+        except Exception as e:
+            vErrors += ['Ошибка обработки сообщения: неверное содержимое.']
+            return vErrors
+        
+        if serverMode:            
+            if taskKey not in tasksToPoll.keys():
+                vErrors += ['Ошибка обработки сообщения: неверный ключ.']
+                return vErrors
+           
+            tasksToPoll[taskKey]['value']=msgBody
+            tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
+            tasksToPoll[taskKey]['unit']=taskUnit
+            if "error" in headers.keys():
+                tasksToPoll[taskKey]['error']=headers['error']
+        else:
+            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
+                                  'unit':taskUnit,'config':msgBody}
+    # endfor messages in current request
+    return vErrors
+
 
 def formatErrors(errors, serverName, pollName):
     return [{
@@ -326,7 +451,7 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
 # send heartbeat tasks request to rabbitmq exchange
 def sendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=heartbeatAgent.sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
+    errors=hbaSendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
     serverErrors += formatErrors(errors, serverName, "hbSender")
     con.close()
 
@@ -334,7 +459,7 @@ def sendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
 # receive heartbeat tasks request from rabbitmq queue
 def receiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=heartbeatAgent.receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
+    errors=hbaReceiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
     serverErrors += formatErrors(errors, serverName, "hbReceiver")
     con.close()
 
@@ -389,6 +514,11 @@ def useOldParameters(vTasksToPoll, oldTasks):
         if taskKey in oldTasks.keys():
             if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
+                
+                # if results not received - then prolongate old errors, else no
+                if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()):
+                    task['error'] = oldTasks[taskKey]['error']
+
             if 'value' not in task.keys() and ('value' in oldTasks[taskKey].keys()):
                 task['value'] = oldTasks[taskKey]['value']
             if 'unit' not in task.keys() and ('unit' in oldTasks[taskKey].keys()):
@@ -409,48 +539,57 @@ def calcIddleTime(vTasksToPoll):
 
 
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
-    def updateTaskDisplayName(taskKey, oldDdisplayname, idleTime, value=None, unit=None):
-        res = "{0} ({1}) : {2} сек назад".format(taskKey, oldDdisplayname, idleTime)
+    def updateTaskDisplayName(taskKey, oldDdisplayname, idleTime=None, value=None, unit=None, error=None):
+        res = "{0} ({1}) : ".format(taskKey, oldDdisplayname)
+        if idleTime is not None:
+            res+=(str(idleTime)+" сек назад")
         if value is not None:
             res+=" получено значение "+str(value)
         if unit is not None:
             res+=(" "+unit)
+        if error is not None:
+            res+=(" ошибка : " + error)
         return res
 
 
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
-        
+
         if not task.get('enabled',True):
             task['displayname'] = "{0} ({1}) : Задача отключена".format(
                 taskKey, task['displayname'])
             task['style'] = 'ign'
-        
-        elif task.get('error',None) is not None:
-            task['style'] = 'rem'
-            task['displayname'] = "{0} ({1}) : Ошибка : {2}".format(
-                    taskKey, task['displayname'],task['error'])
         else:
-            if "idleTime" not in task.keys():
-                task['displayname'] = "{0} ({1}) : Данные не получены".format(
-                    taskKey, task['displayname'])
-                # if task is absent in previous poll - then not mark it as error
-                if taskKey in oldTasks.keys():
-                    task['style'] = 'rem'
-                else:
-                    task['style'] = 'ign'
-            else:
+            
+            if "idleTime" in task.keys():
                 idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
+            else:
+                idleTime=None
 
-                if abs(idleTime) > \
-                        3 * max(task['period'], pollingPeriodSec):
-                    task['style'] = 'rem'
-
-                if 'unit' in task.keys() and 'value' in task.keys():
-                    task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime,task['value'],task['unit'])
+            if task.get('error',None) is not None:
+                task['style'] = 'rem'
+                task['displayname'] = updateTaskDisplayName(
+                        taskKey, task['displayname'],idleTime=idleTime,error=task['error'])
+            else:
+                if idleTime is None:
+                    task['displayname'] = "{0} ({1}) : Данные не получены".format(
+                        taskKey, task['displayname'])
+                    # if task is absent in previous poll - then not mark it as error
+                    if taskKey in oldTasks.keys():
+                        task['style'] = 'rem'
+                    else:
+                        task['style'] = 'ign'
                 else:
-                    task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime)
+                    if abs(idleTime) > \
+                            3 * max(task['period'], pollingPeriodSec):
+                        task['style'] = 'rem'
+
+                    if 'unit' in task.keys() and 'value' in task.keys():
+                        task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime,task['value'],task['unit'])
+                    else:
+                        task["displayname"]=updateTaskDisplayName(taskKey,task['displayname'],idleTime)
         # endif task enabled
+    # endfor
 
 
 # create box for every agent (controlblock)

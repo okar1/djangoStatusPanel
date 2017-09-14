@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from django.contrib import admin
-from .models import Servers, Options, ServerGroups, Hosts, Items,TaskSets, Triggers
+from .models import Servers, Options, ServerGroups, Hosts, Items,TaskSets, Triggers, ResultFormatters
 import json
 
 # TODO now host passwords are transfered to admin form unencrypted
@@ -150,25 +150,22 @@ class OptionsAdmin(admin.ModelAdmin):
 
 @admin.register(Hosts)
 class HostsAdmin(admin.ModelAdmin):
-    pass
     # form=RulesForm
-    # list_display = ['rule', 'comment']
+    list_display = ['name', 'key', 'enabled', 'id', 'comment']
     # fields = ['name', 'value']
 
 
 @admin.register(Items)
 class ItemsAdmin(admin.ModelAdmin):
-    pass
     # form=RulesForm
-    # list_display = ['rule', 'comment']
+    list_display = ['name', 'key', 'enabled', 'unit', 'id', 'comment']
     # fields = ['name', 'value']
 
 
 @admin.register(TaskSets)
 class TaskSetsAdmin(admin.ModelAdmin):
-    pass
     # form=RulesForm
-    # list_display = ['rule', 'comment']
+    list_display = ['name', 'server', 'enabled', 'comment']
     # fields = ['name', 'value']
 
 @admin.register(Triggers)
@@ -178,4 +175,11 @@ class TriggersAdmin(admin.ModelAdmin):
     # list_display = ['rule', 'comment']
     # fields = ['name', 'value']
 
-# admin.site.register(ServerComponents, ServerComponentsAdmin)
+@admin.register(ResultFormatters)
+class ResultFormattersAdmin(admin.ModelAdmin):
+    pass
+    # form=RulesForm
+    # list_display = ['rule', 'comment']
+    # fields = ['name', 'value']
+
+# admin.site.register(ServerComponents, ServerComponentsAdmin)    

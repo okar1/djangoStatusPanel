@@ -137,7 +137,7 @@ class Servers(models.Model):
 
     class Meta:
         verbose_name = 'сервер'
-        verbose_name_plural = "qos - серверы"
+        verbose_name_plural = "qos -> серверы"
 
     def __str__(self):
         return self.name
@@ -151,7 +151,7 @@ class ServerGroups(models.Model):
 
     class Meta:
         verbose_name = 'группа серверов'
-        verbose_name_plural = "qos - группы серверов"
+        verbose_name_plural = "qos -> группы серверов"
 
     def __str__(self):
         return self.name
@@ -168,11 +168,22 @@ class Hosts(models.Model):
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
         verbose_name = 'узел сети'
-        verbose_name_plural = 'heartbeat - узлы сети (hosts)'
+        verbose_name_plural = 'hb -> задачи -> узлы сети (hosts)'
+
+    def __str__(self):
+        return ("(Отключен) " if not self.enabled else "")+self.name + ", "+ self.key+" ("+self.comment+")"
+
+# post processing expressions for result
+class ResultFormatters(models.Model):
+    name = models.CharField("Имя обработчика", max_length=255, blank=False, null=False, editable=True, default="")
+    config = models.TextField(blank=False, null=False, default="")
+    
+    class Meta:
+        verbose_name = 'обработкчик результата'
+        verbose_name_plural = 'hb -> задачи -> элементы данных -> обработка результата'
 
     def __str__(self):
         return self.name
-
 
 # settings of heartbeat data collectors 
 class Items(models.Model):
@@ -180,15 +191,16 @@ class Items(models.Model):
     key = models.CharField("Ключ параметра (parameter key)", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
     unit = models.CharField("Единица измерения", max_length=255, blank=True, null=False, editable=True, default="")
-    config = models.TextField(null=False, default="")
+    config = models.TextField(blank=False, null=False, default="")
+    resultformatter = models.ForeignKey(ResultFormatters,verbose_name="Обработчик результата", blank=True, null=True)
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     
     class Meta:
         verbose_name = 'элемент данных'
-        verbose_name_plural = 'heartbeat - элементы данных (items)'
+        verbose_name_plural = 'hb -> задачи -> элементы данных (items)'
 
     def __str__(self):
-        return self.name
+        return ("(Отключена) " if not self.enabled else "")+self.name + ", "+ self.key+" ("+self.comment+")"
 
 # alarm treshholds for items. Each item can contain 0 or more triggers
 class Triggers(models.Model):
@@ -202,7 +214,7 @@ class Triggers(models.Model):
 
     class Meta:
         verbose_name = 'триггер'
-        verbose_name_plural = 'heartbeat - триггеры'
+        verbose_name_plural = 'hb -> задачи -> триггеры'
 
 # hosts, items --> server mappings
 # each server can contain 0 or more mappings
@@ -278,7 +290,7 @@ class TaskSets(models.Model):
         res={}
         for task in tasks:
             # taskKey=task.hostkey + '.heartbeat.' + task.itemkey
-            taskKey=task.hostname + " : heartbeat : " + task.itemname
+            taskKey="heartbeat." + str(task.id) + "." + task.itemname
             taskValue={
                     "agentKey":task.hostkey,
                     "agentName":task.hostname,
@@ -296,12 +308,12 @@ class TaskSets(models.Model):
             taskValue["config"]=taskConfig
             res[taskKey]=taskValue
         
-        print(res)
+        # print(res)
         return res
 
     class Meta:
         verbose_name = 'задача сбора данных'
-        verbose_name_plural = 'heartbeat - задачи сбора данных'
+        verbose_name_plural = 'hb -> задачи'
     def __str__(self):
         return self.name
 

@@ -171,7 +171,8 @@ class Hosts(models.Model):
         verbose_name_plural = 'hb -> задачи -> узлы сети (hosts)'
 
     def __str__(self):
-        return ("(Отключен) " if not self.enabled else "")+self.name + ", "+ self.key+" ("+self.comment+")"
+        return ("(Отключен) " if not self.enabled else "")+self.name + ", "+ self.key+ \
+            (" ("+self.comment+")" if self.comment!="" else "")
 
 # post processing expressions for result
 class ResultFormatters(models.Model):
@@ -200,7 +201,8 @@ class Items(models.Model):
         verbose_name_plural = 'hb -> задачи -> элементы данных (items)'
 
     def __str__(self):
-        return ("(Отключена) " if not self.enabled else "")+self.name + ", "+ self.key+" ("+self.comment+")"
+        return ("(Отключена) " if not self.enabled else "")+self.name + ", "+ self.key+ \
+            (" ("+self.comment+")" if self.comment!="" else "")
 
 # alarm treshholds for items. Each item can contain 0 or more triggers
 class Triggers(models.Model):

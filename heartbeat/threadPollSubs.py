@@ -61,8 +61,8 @@ def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode
     return errors
 
 
-def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
 
+def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
     vErrors=[]

@@ -350,12 +350,12 @@ def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readc
         
         itemKey=row[indexcol]
         itemValue=row[datacol]
-        print(itemKey)
-        print(itemValue)
-        filterOk=True
+        # print(itemKey)
+        # print(itemValue)
+        filterOk=False
         for kw in include:
-            if itemKey.find(kw)==-1:
-                filterOk=False
+            if itemKey.find(kw)!=-1:
+                filterOk=True
                 break
         if filterOk:
             res.update({itemKey:itemValue})
@@ -393,10 +393,10 @@ def taskOhwTableValue(include):
     assert type(include)==list
 
     for itemKey,itemValue in tableDict.items():
-        filterOk=True
+        filterOk=False
         for kw in include:
-            if itemKey.find(kw)==-1:
-                filterOk=False
+            if itemKey.find(kw)!=-1:
+                filterOk=True
                 break
         if filterOk:
             res.update({itemKey:itemValue})

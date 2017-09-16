@@ -130,6 +130,18 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         vErrors+= [str(e)]
         return vErrors
 
+    try:
+        channel.exchange_declare(exchange=receiveFromQueue, exchange_type='topic', durable=True)
+    except Exception as e:
+        vErrors+= [str(e)]
+        return vErrors
+
+    try:
+        channel.queue_bind(queue=receiveFromQueue, exchange=receiveFromQueue, routing_key="#")
+    except Exception as e:
+        vErrors+= [str(e)]
+        return vErrors
+
     mqMessages = []
     while True:
         # connect and check errors (amqp)

@@ -63,6 +63,7 @@ def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode
 
 
 def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
+
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
     vErrors=[]
@@ -71,6 +72,18 @@ def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serve
 
     try:
         channel.queue_declare(queue=receiveFromQueue, durable=True,arguments={'x-message-ttl':1800000})
+    except Exception as e:
+        vErrors+= [str(e)]
+        return vErrors
+
+    try:
+        channel.exchange_declare(exchange=receiveFromQueue, exchange_type='topic', durable=True)
+    except Exception as e:
+        vErrors+= [str(e)]
+        return vErrors
+
+    try:
+        channel.queue_bind(queue=receiveFromQueue, exchange=receiveFromQueue, routing_key="#")
     except Exception as e:
         vErrors+= [str(e)]
         return vErrors

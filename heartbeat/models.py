@@ -207,16 +207,20 @@ class Items(models.Model):
 # alarm treshholds for items. Each item can contain 0 or more triggers
 class Triggers(models.Model):
     name = models.CharField("Имя триггера", max_length=255, blank=False, null=False, editable=True, default="")
-    # = >= <= != < >
-    operator = models.CharField("Результат: условие", max_length=2, blank=False, null=False, editable=True, default="")
-    value = models.CharField("Результат: значение", max_length=255, blank=False, null=False, editable=True, default="")
-    countoperator = models.CharField("Кол-во результатов: условие", max_length=2, blank=False, null=False, editable=True, default="")
-    countvalue = models.CharField("Кол-во результатов: значение", max_length=255, blank=False, null=False, editable=True, default="")
-    severity = models.CharField("Важность", max_length=20, blank=False, null=False, editable=True, default="")
-
+    config = models.TextField(blank=False, null=False, default="")
+    durability=models.PositiveIntegerField("Длительность (сек)",  blank=False, null=False, editable=True, default=0)
+    severity = models.CharField("Важность", max_length=255, blank=False, null=False, editable=True, default="high",
+        choices=( 
+            ("high","Высокая"),
+            ("low","Низкая"),
+        ))
     class Meta:
         verbose_name = 'триггер'
         verbose_name_plural = 'hb -> задачи -> триггеры'
+    
+    def __str__(self):
+        return self.config+" ("+self.name+")"
+
 
 # hosts, items --> server mappings
 # each server can contain 0 or more mappings
@@ -315,7 +319,7 @@ class TaskSets(models.Model):
 
     class Meta:
         verbose_name = 'задача сбора данных'
-        verbose_name_plural = 'hb -> задачи'
+        verbose_name_plural = 'hb -> задачи сбора данных'
     def __str__(self):
         return self.name
 

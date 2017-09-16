@@ -170,9 +170,8 @@ class TaskSetsAdmin(admin.ModelAdmin):
 
 @admin.register(Triggers)
 class TriggersAdmin(admin.ModelAdmin):
-    pass
     # form=RulesForm
-    # list_display = ['rule', 'comment']
+    list_display = ['name', 'config']
     # fields = ['name', 'value']
 
 @admin.register(ResultFormatters)

@@ -240,7 +240,8 @@ class TaskSets(models.Model):
     #       but disabled tasks in taskset can be overlapped by other tasksets.
     #       in this case such tasks will be enabled
     def getHeartbeatTasks(server,pollingPeriodSec):
-        sql="""select  
+        sql="""
+        select  
             Distinct ON (hosts.id,items.id,enabled)
             items.id || '-' || hosts.id as "id",
             items.name as "itemname",
@@ -250,21 +251,23 @@ class TaskSets(models.Model):
             hosts.name as "hostname",
             hosts.key as "hostkey",
             hosts.config as "hostconfig",
+            format.config as "format",
             bool_or(ts.enabled and hosts.enabled and items.enabled) as "enabled"
-            from
+        from
             heartbeat_tasksets as "ts",
             heartbeat_hosts as "hosts",
-            heartbeat_items as "items",
+            heartbeat_items as "items"
+                left outer join heartbeat_resultformatters as "format" on (items.resultformatter_id=format.id),
             heartbeat_tasksets_hosts as "ts_hosts",
             heartbeat_tasksets_items as "ts_items"
-            where 
+        where 
             ts.server_id={serverid} and 
             ts_hosts.tasksets_id=ts.id and
             ts_hosts.hosts_id=hosts.id and
             ts_items.tasksets_id=ts.id and
             ts_items.items_id=items.id
-            group by items.id,hosts.id""" \
-            .format(serverid=str(int(server.id)))
+        group by items.id,hosts.id,format
+        """.format(serverid=str(int(server.id)))
         
         tasks=TaskSets.objects.raw(sql)
         
@@ -293,6 +296,15 @@ class TaskSets(models.Model):
                     taskConfig.update(hostConfig[itemKey])
             return taskConfig
 
+        def getTaskFormat(formatStr):
+            if formatStr is None:
+                return formatStr
+            else:
+                try:
+                    return json.loads(formatStr)
+                except:
+                    raise Exception("проверьте настройку обработки результата")
+
         res={}
         for task in tasks:
             # taskKey=task.hostkey + '.heartbeat.' + task.itemkey
@@ -312,6 +324,14 @@ class TaskSets(models.Model):
                 taskConfig={}
                 taskValue['error']=str(e)
             taskValue["config"]=taskConfig
+
+            try:
+                taskFormat=getTaskFormat(task.format)
+            except Exception as e:
+                taskFormat=None
+                taskValue['error']=str(e)
+            taskValue["format"]=taskFormat
+
             res[taskKey]=taskValue
         
         # print(res)

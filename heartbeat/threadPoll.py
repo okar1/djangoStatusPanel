@@ -5,6 +5,9 @@ import sys
 from .models import Servers, Options, TaskSets
 from . import threadPollSubs as subs
 from .threadMqConsumers import MqConsumers
+
+isTestEnv=False
+
 # import pythoncom
 # heartbeat main thread
 def threadPoll():
@@ -128,6 +131,11 @@ def threadPoll():
         # print(int(time.time()-threadPoll.pollTimeStamp), 'seconds cycle')
         threadPoll.pollTimeStamp = int(time.time())
 
+        #debug
+        if isTestEnv:
+            from .heartbeatAgent import agentStart
+            agentStart()
+
         # time.sleep(5)
         time.sleep(opt['pollingPeriodSec'])
 
@@ -140,6 +148,9 @@ arg = sys.argv
 startThread = True
 if len(arg) == 2 and arg[0] == 'manage.py' and arg[1] != 'runserver':
     startThread = False
+
+if arg[1]=='runserver':
+    isTestEnv=True
 
 if startThread:
     t = threading.Thread(target=threadPoll)

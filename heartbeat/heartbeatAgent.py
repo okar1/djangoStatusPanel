@@ -21,6 +21,7 @@ from pysnmp.proto.rfc1902 import OctetString #OctetString
 from pyasn1.type.univ import ObjectIdentifier
 
 import wmi
+import re
 
 # import binascii
 
@@ -96,7 +97,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'], "format":task.get('format',None)}
 
         if "error" in task.keys():
             msgHeaders['error']=task['error']
@@ -170,6 +171,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             taskKey=headers['key']
             taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
+            taskFormat=headers.get('format',None)
         except Exception as e:
             errStr = "Ошибка обработки сообщения: неверный заголовок."
             if errStr not in vErrors:
@@ -196,7 +198,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 tasksToPoll[taskKey]['error']=headers['error']
         else:
             tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
-                                  'unit':taskUnit,'config':msgBody}
+                                  'unit':taskUnit,'format':taskFormat,'config':msgBody}
     # endfor messages in current request
     return vErrors
 
@@ -341,6 +343,20 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
     return res
 
 
+# table like {key:value}
+# includeList like ["regex pattern string"]
+# result like {key:value} if key match at least 1 pattern
+def filterTable(table,include):
+    assert type(include)==list
+    res={}
+    for key,value in table.items():
+        for pattern in include:
+            if re.search(pattern,key) is not None:
+                res.update({key:value})
+                break
+    return res
+
+
 def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public', indexcol=1, datacol=2):
     if not hasattr(taskSnmpTableValue,"tableDict"):
         taskSnmpTableValue.tableDict={}
@@ -348,32 +364,19 @@ def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readc
 
     tableId=oid+"&"+host+"&"+str(port)+"&"+readcommunity
     if tableId not in tableDict.keys():
-        table=_snmpGetTable(oid,host,port,readcommunity)
+        tableList=_snmpGetTable(oid,host,port,readcommunity)
+        if len(tableList[0])-1<max(indexcol,datacol):
+            raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
+        table={row[indexcol]:row[datacol] for row in tableList}
         tableDict[tableId]=table
     else:
         table=tableDict[tableId]
 
-    res={}
-    assert type(include)==list
-
-    for row in table.values():
-        if len(row)-1<max(indexcol,datacol):
-            raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
-        
-        itemKey=row[indexcol]
-        itemValue=row[datacol]
-        # print(itemKey)
-        # print(itemValue)
-        filterOk=False
-        for kw in include:
-            if itemKey.find(kw)!=-1:
-                filterOk=True
-                break
-        if filterOk:
-            res.update({itemKey:itemValue})
-
-    if not table:
+    if table:
+        res=filterTable(table,include)
+    else:
         raise Exception("Не удалось загрузить таблицу SNMP. Проверьте настройки ПО и доступность оборудования.")
+    
     if len(res)==0:
         raise Exception("Не удалось найти значение в таблице SNMP")
     elif len(res)==1:
@@ -389,7 +392,7 @@ def _wmiOhmTable():
     c=wmi.WMI(namespace="OpenHardwareMonitor")
     wql="select * from Sensor"
     q=c.query(wql)
-    return {item.Identifier+" "+item.Name:item.Value for item in q}
+    return {item.Identifier:item.Value for item in q} # +item.Name
 
 
 # identifier of openHardwareMonitor table value like "/intelcpu/0/temperature/0"
@@ -397,24 +400,16 @@ def taskOhwTableValue(include):
     res={}
     if not hasattr(taskOhwTableValue,"tableDict"):
         try:
-            taskOhwTableValue.tableDict=_wmiOhmTable()
+            taskOhwTableValue.table=_wmiOhmTable()
         except Exception as e:
             return str(e)
-    tableDict=taskOhwTableValue.tableDict
+    table=taskOhwTableValue.table
 
-    assert type(include)==list
-
-    for itemKey,itemValue in tableDict.items():
-        filterOk=False
-        for kw in include:
-            if itemKey.find(kw)!=-1:
-                filterOk=True
-                break
-        if filterOk:
-            res.update({itemKey:itemValue})
-
-    if not tableDict:
+    if table:
+        res=filterTable(table,include)
+    else:
         raise Exception("Не удалось загрузить данные Open Hardware Monitor. Проверьте работу ПО.")
+
     if len(res)==0:
         raise Exception("Не удалось найти значение в таблице Open Hardware Monitor")
     elif len(res)==1:
@@ -447,6 +442,9 @@ def processHeartBeatTasks(tasksToPoll):
 
         print("*********")
         print("got task",taskKey,task)
+
+        print ("format is",task['format'])
+        print(task['format'] is None)
 
         if task.get('module',None)!='heartbeat':
             task['error']="Указано неверное имя модуля"
@@ -485,8 +483,7 @@ def processHeartBeatTasks(tasksToPoll):
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
         task['timeStamp']=nowDateTime
 
-
-if __name__ == '__main__':
+def agentStart():
     # print(taskOhmTableValue("/intelcpu/0/temperature/2"))
     # print(taskOhmTableValue("/intelcpu/0/temperature/0"))
     print("agent start")
@@ -501,3 +498,8 @@ if __name__ == '__main__':
             print(e)
     print("*********")
     print("agent end")
+
+
+
+if __name__ == '__main__':
+    agentStart()

@@ -41,7 +41,7 @@ def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode
             msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'], "format":task.get('format',None)}
 
         if "error" in task.keys():
             msgHeaders['error']=task['error']
@@ -59,7 +59,6 @@ def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode
             body=json.dumps(msgBody).encode('UTF-8')
         )
     return errors
-
 
 
 def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
@@ -116,6 +115,7 @@ def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serve
             taskKey=headers['key']
             taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
+            taskFormat=headers.get('format',None)
         except Exception as e:
             errStr = "Ошибка обработки сообщения: неверный заголовок."
             if errStr not in vErrors:
@@ -142,7 +142,7 @@ def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serve
                 tasksToPoll[taskKey]['error']=headers['error']
         else:
             tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
-                                  'unit':taskUnit,'config':msgBody}
+                                  'unit':taskUnit,'format':taskFormat,'config':msgBody}
     # endfor messages in current request
     return vErrors
 

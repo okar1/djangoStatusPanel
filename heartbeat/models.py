@@ -168,7 +168,7 @@ class Hosts(models.Model):
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
         verbose_name = 'узел сети'
-        verbose_name_plural = 'hb -> задачи -> узлы сети (hosts)'
+        verbose_name_plural = 'hb -> узлы сети (hosts)'
 
     def __str__(self):
         return ("(Отключен) " if not self.enabled else "")+self.name + ", "+ self.key+ \
@@ -181,7 +181,7 @@ class ResultFormatters(models.Model):
     
     class Meta:
         verbose_name = 'обработкчик результата'
-        verbose_name_plural = 'hb -> задачи -> элементы данных -> обработка результата'
+        verbose_name_plural = 'hb -> обработка результата'
 
     def __str__(self):
         return self.name
@@ -198,7 +198,7 @@ class Items(models.Model):
     
     class Meta:
         verbose_name = 'элемент данных'
-        verbose_name_plural = 'hb -> задачи -> элементы данных (items)'
+        verbose_name_plural = 'hb -> элементы данных (items)'
 
     def __str__(self):
         return ("(Отключена) " if not self.enabled else "")+self.name + ", "+ self.key+ \
@@ -216,7 +216,7 @@ class Triggers(models.Model):
         ))
     class Meta:
         verbose_name = 'триггер'
-        verbose_name_plural = 'hb -> задачи -> триггеры'
+        verbose_name_plural = 'hb -> триггеры'
     
     def __str__(self):
         return self.config+" ("+self.name+")"
@@ -280,16 +280,16 @@ class TaskSets(models.Model):
                 taskConfig={}
             else:                
                 try:
-                    taskConfig=json.loads(sItemConfig)
+                    taskConfig=json.loads(sItemConfig.replace('\\','\\\\'))
                 except:
                     raise Exception("неправильная конфигурация элемента данных")
                 
             # if hostConfig has any parameters - add it to taskConfig
             if sHostConfig!="":
                 try:
-                    hostConfig=json.loads(sHostConfig)
-                except:
-                    raise Exception("неправильная конфигурация узла сети")
+                    hostConfig=json.loads(sHostConfig.replace('\\','\\\\'))
+                except Exception as e:
+                    raise Exception("неправильная конфигурация узла сети "+str(e))
 
                 if itemKey in hostConfig.keys():
                     # host parameters has priority and override same-named item patameters 
@@ -301,9 +301,9 @@ class TaskSets(models.Model):
                 return formatStr
             else:
                 try:
-                    return json.loads(formatStr)
-                except:
-                    raise Exception("проверьте настройку обработки результата")
+                    return json.loads(formatStr.replace('\\','\\\\'))
+                except Exception as e:
+                    raise Exception("проверьте настройку обработки результата "+str(e))
 
         res={}
         for task in tasks:

@@ -23,7 +23,6 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
         return errors
 
     for taskKey, task in tasksToPoll.items():
-        
         msgRoutingKey=task['agentKey']        
         if serverMode:
             # process only heartbeat tasks
@@ -563,6 +562,8 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         if idleTime is not None:
             res+=(str(idleTime)+" сек назад")
         if value is not None:
+            if type(value)==float and value==int(value):
+                value=int(value)
             res+=" получено значение "+str(value)
         if unit is not None:
             res+=(" "+unit)

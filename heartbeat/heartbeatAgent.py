@@ -430,6 +430,18 @@ def filterConfigParameters(config,filterSet):
         raise Exception("неправильная конфигурация элемента данных")
     return res
 
+
+# convert v to float. Raise exception if impossible.
+# check +-inf and nan and raises exception
+def toFloat(v):
+    res=float(v)
+    if res!=res:
+        raise Exception("NaN values not supported")
+    if res==float("inf") or res==float("-inf"):
+        raise Exception("infinitive values not supported")
+    return res
+
+
 # format value or multivalue with formatter settings.
 # returns formatted result
 def formatValue(v,format):
@@ -442,7 +454,7 @@ def formatValue(v,format):
     def _checkFormatParameters(vFormat,pattern):
         for paramKey,paramOpts in pattern.items():
             isMandatory=paramOpts.get('mandatory',True)
-            if isMandatory and (paramKey not in format.keys()):
+            if isMandatory and (paramKey not in vFormat.keys()):
                 raise Exception("не указан параметр "+paramKey+" Проверьте настройку обработки результата")
             else:
                 # (mandatory and present) or (not mandatory)
@@ -475,17 +487,45 @@ def formatValue(v,format):
                 "decimalplaces":{"type":int,
                                  "mandatory":False}}
             )
-            print("check ok!")
+            v=toFloat(v)
+            decPlaces=format['decimalplaces']
+            if decPlaces is not None:
+                v=round(v,decPlaces)
         # convert to boolean value.
         # optional lists [truevalues] and [falsevalues] are supported
+        # default value is returned if not found in truevalues and falsevales
         elif item=="bool":
             _checkFormatParameters(format,{
                 "truevalues":{"type":list,
                               "mandatory":False},
                 "falsevalues":{"type":list,
                                "mandatory":False},              
+                "default":{"type":bool,
+                               "mandatory":False},              
                 }
             )
+            if format['default'] is None:
+                default=False
+            else:
+                default=format['truevalues']
+            
+            if format['truevalues'] is None:
+                trueValues=[1,'1',True,"true","True",'t','T',"y","Y"]
+            else:
+                trueValues=format['truevalues']
+            
+            if format['falsevalues'] is None:
+                falseValues=[0,'0',False,'false','False','f','F','n',"N"]
+            else:
+                falseValues=format['falsevalues']
+
+            if v in trueValues:
+                v=True
+            elif v in falseValues:
+                v=False
+            else:
+                v=default
+
         # find and replace text in string value (regEx supported)
         # mandatory strings "find" and "replace" must be specified
         elif item=="replace":
@@ -494,8 +534,24 @@ def formatValue(v,format):
                         "mandatory":True},
                 "replace":{"type":str,
                            "mandatory":True},
+                "ignorecase":{"type":bool,
+                           "mandatory":False},
                 }
             )
+            sFind=format['find']
+            sReplace=format['replace']
+            ignoreCase=format['ignorecase']
+            if ignoreCase is None:
+                ignoreCase=False
+            
+            if ignoreCase:
+                pattern=re.compile(sFind,re.IGNORECASE)
+            else:
+                pattern=re.compile(sFind)
+            if type(v)!=str:
+                v=str(v)
+
+            v=pattern.sub(sReplace,v)
         # add number to number value.
         # mandatory number "value" must be specified
         elif item=="add":
@@ -504,6 +560,7 @@ def formatValue(v,format):
                         "mandatory":True},
                 }
             )
+            v=toFloat(v)+format['value']
         # multiply number to number value.
         # mandatory number "value" must be specified
         elif item=="multiply":
@@ -512,13 +569,15 @@ def formatValue(v,format):
                         "mandatory":True},
                 }
             )
+            v=toFloat(v)*format['value']
         else:
-            raise Exception("не задано поле item. Проверьте настройку обработки результата")
+            raise Exception("поле item не задано либо некорректно. Проверьте настройку обработки результата")
             
         return v
 
     # value is single
     def _do1value(v,format):
+        
         if type(format)!=list:
             # format is {format}
             return _do1value1format(v,format)

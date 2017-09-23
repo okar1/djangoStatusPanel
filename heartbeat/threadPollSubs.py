@@ -8,7 +8,7 @@ from .threadMqConsumers import MqConsumers
 
 timeStampFormat="%Y%m%d%H%M%S"
 
-def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
+def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
     
@@ -36,12 +36,14 @@ def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode
             if task.get('error',False):
                 continue
             timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
-            msgBody=task['config']
+            msgBody={"config":task['config'],
+                     "format":task.get('format',None)
+                    }
         else:
             msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'], "format":task.get('format',None)}
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
 
         if "error" in task.keys():
             msgHeaders['error']=task['error']
@@ -61,7 +63,7 @@ def hbaSendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode
     return errors
 
 
-def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
+def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
 
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
@@ -115,7 +117,6 @@ def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serve
             taskKey=headers['key']
             taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
-            taskFormat=headers.get('format',None)
         except Exception as e:
             errStr = "Ошибка обработки сообщения: неверный заголовок."
             if errStr not in vErrors:
@@ -142,7 +143,8 @@ def hbaReceiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serve
                 tasksToPoll[taskKey]['error']=headers['error']
         else:
             tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
-                                  'unit':taskUnit,'format':taskFormat,'config':msgBody}
+                                  'unit':taskUnit,'config':msgBody['config'],
+                                  'format':msgBody['format']}
     # endfor messages in current request
     return vErrors
 
@@ -466,17 +468,17 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
 
 
 # send heartbeat tasks request to rabbitmq exchange
-def sendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
+def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=hbaSendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
+    errors=sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
     serverErrors += formatErrors(errors, serverName, "hbSender")
     con.close()
 
 
 # receive heartbeat tasks request from rabbitmq queue
-def receiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
+def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=hbaReceiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
+    errors=receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
     serverErrors += formatErrors(errors, serverName, "hbReceiver")
     con.close()
 

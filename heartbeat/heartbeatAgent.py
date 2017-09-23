@@ -1,5 +1,5 @@
 # # -*- coding: utf-8 -*-
-import requests
+# import requests
 import pika
 import json
 from datetime import datetime
@@ -45,15 +45,16 @@ timeStampFormat="%Y%m%d%H%M%S"
 def getMqConnection(mqConf,vErrors,maxMsgTotal):
 
     # try to connect via http api
-    req = requests.get('http://{0}:{1}/api/overview'.format(
-        mqConf["server"], mqConf["port"]), auth=(mqConf["user"], mqConf["pwd"]))
+    # req = requests.get('http://{0}:{1}/api/overview'.format(
+        # mqConf["server"], mqConf["port"]), auth=(mqConf["user"], mqConf["pwd"]))
 
     # get total number of messages on rabbitMQ
-    msgTotal = req.json()['queue_totals']['messages']
+    # msgTotal = req.json()['queue_totals']['messages']
+    # totals and messages can absent
 
     # check if too many messages on rabbitMQ
-    if msgTotal > maxMsgTotal:
-        vErrors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
+    # if msgTotal > maxMsgTotal:
+        # vErrors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
 
     # try to connect via amqp
     amqpLink = pika.BlockingConnection(
@@ -63,6 +64,7 @@ def getMqConnection(mqConf,vErrors,maxMsgTotal):
             mqConf.get("vhost",'/'),
             pika.PlainCredentials(mqConf["user"], mqConf["pwd"])))
     return amqpLink
+
 
 def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
     if not mqAmqpConnection:
@@ -92,12 +94,14 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             if task.get('error',False):
                 continue
             timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
-            msgBody=task['config']
+            msgBody={"config":task['config'],
+                     "format":task.get('format',None)
+                    }
         else:
             msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'], "format":task.get('format',None)}
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
 
         if "error" in task.keys():
             msgHeaders['error']=task['error']
@@ -171,7 +175,6 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             taskKey=headers['key']
             taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
-            taskFormat=headers.get('format',None)
         except Exception as e:
             errStr = "Ошибка обработки сообщения: неверный заголовок."
             if errStr not in vErrors:
@@ -198,7 +201,8 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 tasksToPoll[taskKey]['error']=headers['error']
         else:
             tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
-                                  'unit':taskUnit,'format':taskFormat,'config':msgBody}
+                                  'unit':taskUnit,'config':msgBody['config'],
+                                  'format':msgBody['format']}
     # endfor messages in current request
     return vErrors
 
@@ -385,7 +389,6 @@ def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readc
         return res
 
 
-
 # get wmi table from OpenHardwaqreMonitor like {Identifier:value,...}
 # no error handling
 def _wmiOhmTable():
@@ -427,6 +430,112 @@ def filterConfigParameters(config,filterSet):
         raise Exception("неправильная конфигурация элемента данных")
     return res
 
+# format value or multivalue with formatter settings.
+# returns formatted result
+def formatValue(v,format):
+    
+    # check that format contains mandatory parameters and that parameter types are correct
+    # vFormat like {"item": "formatName", "param1":param1value, "param2":"param2value"}
+    # pattern like {"param1":{"type":dict,"mandatory":true}, "param2": ...}
+    # if mandatory parameter absent - raise exception
+    # if optional parameter absent - None value is added to vFormat
+    def _checkFormatParameters(vFormat,pattern):
+        for paramKey,paramOpts in pattern.items():
+            isMandatory=paramOpts.get('mandatory',True)
+            if isMandatory and (paramKey not in format.keys()):
+                raise Exception("не указан параметр "+paramKey+" Проверьте настройку обработки результата")
+            else:
+                # (mandatory and present) or (not mandatory)
+                paramValue=vFormat.get(paramKey,None)
+                if paramValue is not None:
+                    paramType=paramOpts['type']
+                    # paramtype is list like [int, str, float, ...]
+                    # and type of value is absent in this list
+                    # \ or
+                    # paramtype is type (like float)
+                    # and type of value not equal it
+                    if (type(paramType)==list and (type(paramValue) not in paramType)) or \
+                       (type(paramType)!=list and (type(paramValue)!=paramType)):
+                        raise Exception("тип параметра "+paramKey+" задан неверно. Проверьте настройку обработки результата")                        
+                else:
+                    vFormat[paramKey]=None #paramValue
+
+
+    # value is single and format is {format}
+    def _do1value1format(v,format):
+        
+        if type(format) is not dict:
+           raise Exception("проверьте настройку обработки результата")
+        
+        item=format.get("item",None)
+        # convert to numeric value.
+        # optional parameter "decimalplaces" is supported (default is 0)
+        if item =="number":
+            _checkFormatParameters(format,{
+                "decimalplaces":{"type":int,
+                                 "mandatory":False}}
+            )
+            print("check ok!")
+        # convert to boolean value.
+        # optional lists [truevalues] and [falsevalues] are supported
+        elif item=="bool":
+            _checkFormatParameters(format,{
+                "truevalues":{"type":list,
+                              "mandatory":False},
+                "falsevalues":{"type":list,
+                               "mandatory":False},              
+                }
+            )
+        # find and replace text in string value (regEx supported)
+        # mandatory strings "find" and "replace" must be specified
+        elif item=="replace":
+            _checkFormatParameters(format,{
+                "find":{"type":str,
+                        "mandatory":True},
+                "replace":{"type":str,
+                           "mandatory":True},
+                }
+            )
+        # add number to number value.
+        # mandatory number "value" must be specified
+        elif item=="add":
+            _checkFormatParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+        # multiply number to number value.
+        # mandatory number "value" must be specified
+        elif item=="multiply":
+            _checkFormatParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+        else:
+            raise Exception("не задано поле item. Проверьте настройку обработки результата")
+            
+        return v
+
+    # value is single
+    def _do1value(v,format):
+        if type(format)!=list:
+            # format is {format}
+            return _do1value1format(v,format)
+        else:
+            # format is [{format1},{format2},...]
+            # let's apply formats turn by turn
+            for f in format:
+                v=_do1value1format(v,f)
+            return v
+
+    if type(v)==dict:
+        # for multitask value is dict.
+        # in this case let's format every value in dict
+        return {key:_do1value(value,format) for key,value in v.items()}
+    else:
+        return _do1value(v,format)
+    return v
 
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
 # keys in every heartbeat task : 
@@ -443,9 +552,6 @@ def processHeartBeatTasks(tasksToPoll):
         print("*********")
         print("got task",taskKey,task)
 
-        print ("format is",task['format'])
-        print(task['format'] is None)
-
         if task.get('module',None)!='heartbeat':
             task['error']="Указано неверное имя модуля"
         else:
@@ -457,7 +563,6 @@ def processHeartBeatTasks(tasksToPoll):
                 if item is None:
                     task['error']="В настройках элемента данных не задано значение item"
                 else:
-
                     # task['value']={"key1":"value1","key2":"value2"}
                     # task['unit']="кг/ам"
 
@@ -473,10 +578,15 @@ def processHeartBeatTasks(tasksToPoll):
                     except Exception as e:
                         task['error']=str(e)
 
-
-                    if ('value' not in task.keys()) and ('error' not in task.keys()):
-                        task['error']="Значение не вычислено"
-                        
+                    if ('error' not in task.keys()):
+                        if ('value' not in task.keys()):
+                            task['error']="Значение не вычислено"
+                        else:
+                            if task.get("format",None) is not None:
+                                try:
+                                    task['value']=formatValue(task['value'],task['format'])
+                                except Exception as e:
+                                    task['error']="обработка результата: "+str(e)                                
 
         print ("result:",task)
         #calc current timestamp after end of collecting results        
@@ -498,7 +608,6 @@ def agentStart():
             print(e)
     print("*********")
     print("agent end")
-
 
 
 if __name__ == '__main__':

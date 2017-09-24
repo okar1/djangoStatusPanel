@@ -402,10 +402,7 @@ def _wmiOhmTable():
 def taskOhwTableValue(include):
     res={}
     if not hasattr(taskOhwTableValue,"tableDict"):
-        try:
-            taskOhwTableValue.table=_wmiOhmTable()
-        except Exception as e:
-            return str(e)
+        taskOhwTableValue.table=_wmiOhmTable()
     table=taskOhwTableValue.table
 
     if table:
@@ -609,7 +606,7 @@ def processHeartBeatTasks(tasksToPoll):
     for taskKey,task in tasksToPoll.items():
 
         print("*********")
-        print("got task",taskKey,task)
+        print("got task:",taskKey,task)
 
         if task.get('module',None)!='heartbeat':
             task['error']="Указано неверное имя модуля"
@@ -647,6 +644,9 @@ def processHeartBeatTasks(tasksToPoll):
                                 except Exception as e:
                                     task['error']="обработка результата: "+str(e)                                
 
+        task.pop('config',None)
+        task.pop('format',None)
+        print("")
         print ("result:",task)
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)

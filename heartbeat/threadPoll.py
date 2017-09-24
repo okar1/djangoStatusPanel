@@ -50,7 +50,8 @@ def threadPoll():
 
             # test all rabbitMQ configs and return first working to mqconf
             # serverConfig['mq']=[mqConf] -> mqConf (select first working mqconf)
-            mqConf = subs.getMqConf(serverConfig['mq'], server.name, opt["maxMsgTotal"], serverErrors)
+            mqConf = subs.getMqConf(serverConfig['mq'], server.name, serverErrors)
+            #opt["maxMsgTotal"]
 
             if mqConf:
                 # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"

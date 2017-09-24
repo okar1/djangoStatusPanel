@@ -90,7 +90,7 @@ class Servers(models.Model):
         return fieldTemplate
 
     name = models.CharField(
-        "Имя", unique=True, max_length=255, blank=False, null=False, editable=True)
+        "Имя сервера", unique=True, max_length=255, blank=False, null=False, editable=True)
     config = models.TextField(null=False, default="")
     qosguialarm = models.BooleanField(
         "Оповещать о событиях heartbeat в основном интерфейсе сервера", blank=False, null=False, editable=True, default=False)
@@ -144,7 +144,7 @@ class Servers(models.Model):
 
 # visible servergroup to show set of servers in gui
 class ServerGroups(models.Model):
-    name = models.CharField("Имя", max_length=255,
+    name = models.CharField("Имя группы", max_length=255,
                             blank=False, null=False, editable=True)
     servers = models.ManyToManyField(
         Servers, blank=False, verbose_name="Серверы", editable=True)
@@ -162,6 +162,7 @@ class ServerGroups(models.Model):
 class Hosts(models.Model):
     name = models.CharField("Имя узла", max_length=255, blank=False, null=False, editable=True, default="")
     key = models.CharField("Ключ узла (routing key)", max_length=255, blank=False, null=False, editable=True, default="")
+    server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True)
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
     config = models.TextField(null=False, blank=True, default="")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
@@ -171,8 +172,7 @@ class Hosts(models.Model):
         verbose_name_plural = 'hb -> узлы сети (hosts)'
 
     def __str__(self):
-        return ("(Отключен) " if not self.enabled else "")+self.name + ", "+ self.key+ \
-            (" ("+self.comment+")" if self.comment!="" else "")
+        return ("(Отключен) " if not self.enabled else "") + " (" +  self.server.name + ") " + self.name
 
 # post processing expressions for result
 class ResultFormatters(models.Model):
@@ -226,8 +226,7 @@ class Triggers(models.Model):
 # each server can contain 0 or more mappings
 class TaskSets(models.Model):
     #related_name="membership_invites", on_delete=models.CASCADE
-    name = models.CharField("Имя", max_length=255, blank=False, null=False, editable=True)
-    server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True)
+    name = models.CharField("Имя задачи", max_length=255, blank=False, null=False, editable=True)
     hosts = models.ManyToManyField(Hosts, verbose_name="Узлы сети", blank=True, editable=True) 
     items = models.ManyToManyField(Items, verbose_name="Элементы данных", blank=True, editable=True )
     triggers = models.ManyToManyField(Triggers, verbose_name="Триггеры", blank=True, editable=True )
@@ -261,7 +260,7 @@ class TaskSets(models.Model):
             heartbeat_tasksets_hosts as "ts_hosts",
             heartbeat_tasksets_items as "ts_items"
         where 
-            ts.server_id={serverid} and 
+            hosts.server_id={serverid} and 
             ts_hosts.tasksets_id=ts.id and
             ts_hosts.hosts_id=hosts.id and
             ts_items.tasksets_id=ts.id and

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
-from django.contrib import admin
 from .models import Servers, Options, ServerGroups, Hosts, Items,TaskSets, Triggers, ResultFormatters
+from .threadPollSubs import sendRegisterMessage
+
+from django.contrib import admin
 import json
 
 # TODO now host passwords are transfered to admin form unencrypted
@@ -148,11 +150,41 @@ class OptionsAdmin(admin.ModelAdmin):
     fields = ['name', 'value']
 
 
+
+def hostRegister(modeladmin, request, qset):
+    # queryset.update(status='p')
+    hostRegister.short_description = "Зарегистрировать"
+    
+    # non-repeating list of servers of selected hosts
+    serversSelected={obj.server for obj in qset}
+
+    try:
+        for serv in serversSelected:
+            # hosts for current server
+            hosts=qset.filter(server__exact=serv)
+
+            if len(hosts)==Hosts.objects.filter(server__exact=serv).count():
+                # all hosts of current server was selected.
+                # send "register all" command
+                keyList=["agent"]
+            else:
+                # some hosts of current server was selected
+                # send register command for every host
+                keyList=["agent-" + host.key for host in hosts]
+            
+            sendRegisterMessage(serv,keyList)
+            print("sent registration messages ",serv.name, keyList)
+    except Exception as e:
+        print("sent registration messages error: ",str(e))
+
+
 @admin.register(Hosts)
 class HostsAdmin(admin.ModelAdmin):
     # form=RulesForm
-    list_display = ['name', 'key', 'enabled', 'id', 'comment']
+    list_filter = ('server__name',)
+    list_display = ['name', 'key', 'server', 'enabled', 'id', 'comment']
     # fields = ['name', 'value']
+    actions = [hostRegister]
 
 
 @admin.register(Items)
@@ -165,7 +197,7 @@ class ItemsAdmin(admin.ModelAdmin):
 @admin.register(TaskSets)
 class TaskSetsAdmin(admin.ModelAdmin):
     # form=RulesForm
-    list_display = ['name', 'server', 'enabled', 'comment']
+    list_display = ['name', 'enabled', 'comment']
     # fields = ['name', 'value']
 
 @admin.register(Triggers)

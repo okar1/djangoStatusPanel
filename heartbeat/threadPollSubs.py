@@ -8,6 +8,50 @@ from .threadMqConsumers import MqConsumers
 
 timeStampFormat="%Y%m%d%H%M%S"
 
+# send message "ServerStarted" to "qos.service" queue
+# (no exception handling)
+# routingKeys is list [routingKey]
+# routingKey "agent" causes re-registration of all agents
+# routingKey "agent-someAgentKey" causes re-registration of single agent
+def sendRegisterMessage(server,routingKeys):
+    
+    exchangeName="qos.service"
+    queueName="heartbeatService"
+    msgHeaders={"__TypeId__":"com.tecomgroup.qos.communication.message.ServerStarted"}
+    msgBody={"originName":None,"serverName":""}
+    
+    serverConfig = server.getConfigObject()
+    errors=[]
+    mqConf = getMqConf(serverConfig['mq'], server.name, errors)
+
+    # raise exception only if all mq's are down, so message sending is impossible
+    if mqConf is None:
+        raise Exception("sendRegisterMessage error: " + str(errors))
+
+    connection=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
+    channel = connection.channel()
+
+    channel.exchange_declare(exchange=exchangeName, exchange_type='topic', durable=True)
+    channel.queue_declare(queue=queueName, durable=True,arguments={'x-message-ttl':1800000})
+    channel.queue_bind(queue=queueName, exchange=exchangeName, routing_key="server.agent.register")
+
+    for key in routingKeys:
+        channel.basic_publish(
+            exchange=exchangeName,
+            routing_key=key,
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # make message persistent
+                content_type='application/json',
+                content_encoding='UTF-8',
+                priority=0,
+                expiration="86400000",
+                headers=msgHeaders),
+            body=json.dumps(msgBody).encode('UTF-8')
+        )
+    connection.close()
+
+
+
 def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
     if not mqAmqpConnection:
         return ['Соединение с RabbitMQ не установлено']
@@ -201,7 +245,7 @@ def pollDb(dbConfig, serverName, vServerErrors):
 
 # test all rabbitMQ configs and return first working to mqconf
 # mqConfig=[mqConf] -> mqConf (select first working mqconf)
-def getMqConf(mqConfig,serverName,maxMsgTotal,vServerErrors):
+def getMqConf(mqConfig,serverName,vServerErrors):
     pollName = "CheckRabbitMq"
     errors = []
 
@@ -557,6 +601,26 @@ def calcIddleTime(vTasksToPoll):
 
 
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
+    # converts value before displaying it into view
+    def formatValue(v):
+        
+        # display string values in quotes
+        if type(v)==str:
+            return "\""+v+"\""
+
+        # display floating numbers without decimal place as integer (ex "23" instead "23.0")
+        if type(v)==float and v==int(v):
+            v=int(v)
+
+        # predefined strings for boolean values
+        if type(v)==bool:
+            if v:
+                v="ДА"
+            else:
+                v="НЕТ"
+                
+        return str(v)
+
     def updateTaskDisplayName(taskKey, oldDdisplayname, idleTime=None, value=None, unit=None, error=None):
         res = "{0} ({1}) : ".format(taskKey, oldDdisplayname)
         if idleTime is not None:
@@ -564,7 +628,9 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         if value is not None:
             if type(value)==float and value==int(value):
                 value=int(value)
-            res+=" получено значение "+str(value)
+            # do not store result in tasksToPoll[sometask]['value']
+            # use result for displaying only 
+            res+=" получено значение "+formatValue(value)
         if unit is not None:
             res+=(" "+unit)
         if error is not None:

@@ -147,11 +147,14 @@ def threadPoll():
 
 arg = sys.argv
 startThread = True
-if len(arg) == 2 and arg[0] == 'manage.py' and arg[1] != 'runserver':
-    startThread = False
-
-if arg[1]=='runserver':
-    isTestEnv=True
+if len(arg) == 2 and arg[0] == 'manage.py':
+    # testing environment - migrate mode
+    if arg[1] != 'runserver':
+        startThread = False
+    # testing environment - run mode
+    else:
+        isTestEnv=True
+   
 
 if startThread:
     t = threading.Thread(target=threadPoll)

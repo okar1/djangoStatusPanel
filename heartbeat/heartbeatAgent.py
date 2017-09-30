@@ -243,7 +243,7 @@ def _snmpFormatValue(v):
     return res
 
 
-def taskSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
+def taskSnmp(oid, host ,port, readcommunity):
     # sample oids of windows snmp service for debugging
     #NoSuchObject
     #oid=".0.0.0.0.0.0.0.0"
@@ -263,15 +263,12 @@ def taskSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
     #oid=".1.3.6.1.2.1.1.1.0"
     #OctetString with MAC addres
     #oid=".1.3.6.1.2.1.2.2.1.6.6"
-    try:
-        req = snmp.getCmd(snmp.SnmpEngine(),
-                    snmp.CommunityData(readcommunity),
-                    snmp.UdpTransportTarget((host, port)),
-                    snmp.ContextData(),
-                    snmp.ObjectType(snmp.ObjectIdentity(oid)))
-        reply=next(req)
-    except Exception as e:
-        return str(e)
+    req = snmp.getCmd(snmp.SnmpEngine(),
+                snmp.CommunityData(readcommunity),
+                snmp.UdpTransportTarget((host, port)),
+                snmp.ContextData(),
+                snmp.ObjectType(snmp.ObjectIdentity(oid)))
+    reply=next(req)
 
     if reply[0] is None:
         # ok result example(None, 0, 0, [ObjectType(ObjectIdentity(ObjectName('1.3.6.1.2.1.1.3.0')), TimeTicks(1245987))])
@@ -290,8 +287,7 @@ def taskSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
             return _snmpFormatValue(value)
     else:
         # error example (RequestTimedOut('No SNMP response received before timeout',), 0, 0, [])
-        res=str(reply[0])
-    return res
+        raise Exception(str(reply[0]))
 
 
 # get full snmp table like dict {indexRow1:[col1,col2,col3],...}
@@ -320,9 +316,11 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
 
             # oid like 1.3.6.1.2.1.4.20.1.2.127.0.0.1
             # where 1.3.6.1.2.1.4.20 - main (table) oid
-            # 1 - entry (hardcode to always=1)
-            # 2 - column index (starts from 1)
+            # 1 - column index (usually starts from 1, but can differ)
+            # 2 - row index (usually starts from 1, but can differ)
             # 127.0.0.1 - index row value
+            
+            # load first entry from table oid
             entryIndex=1
             prefix=mainoid+'.'+str(entryIndex)+"."
 
@@ -332,13 +330,29 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
             oid=oid[len(prefix):]
             # now oid like 2.127.0.0.1
 
-            # remove entry from oid
-            indexValue='.'.join(oid.split('.')[1:])
+            splitted=oid.split('.')
+
+            # sometimes colindex can skip some cols: 1,2, 4,5,6
+            colIndex=int(splitted[0])
+
+            # index value = row index + index row value
+            # sometimes inde row value is empty - so use only row value
+            indexValue='.'.join(splitted[1:])
             value=_snmpFormatValue(varBind[1])
 
             if indexValue not in res.keys():
                 res[indexValue]=[]
-            res[indexValue]+=[value] 
+            rowValuesList=res[indexValue]
+
+            oldLen=len(rowValuesList)
+            if colIndex<oldLen:
+                raise Exception("Unknown SNMP table error")
+
+            if colIndex>oldLen:
+                # extend array if colindex had skipped values
+                rowValuesList+=[None for nothing in range(colIndex-oldLen)]
+
+            rowValuesList+=[value]
 
         else:
             # error example (RequestTimedOut('No SNMP response received before timeout',), 0, 0, [])
@@ -361,7 +375,7 @@ def filterTable(table,include):
     return res
 
 
-def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public', indexcol=1, datacol=2):
+def taskSnmpTableValue(include, oid, host, port, readcommunity, indexcol, datacol):
     if not hasattr(taskSnmpTableValue,"tableDict"):
         taskSnmpTableValue.tableDict={}
     tableDict=taskSnmpTableValue.tableDict
@@ -422,16 +436,6 @@ def taskOhwTableValue(include):
         return res
 
 
-# check that keys in config are corresponding filterset template
-# removes unneed keys, raise exception if some key is absent
-def filterConfigParameters(config,filterSet):
-    assert type(config)==dict
-    res={k:v for k,v in config.items() if k in filterSet}
-    if len(res)!=len(filterSet):
-        raise Exception("неправильная конфигурация элемента данных")
-    return res
-
-
 # convert v to float. Raise exception if impossible.
 # check +-inf and nan and raises exception
 def toFloat(v):
@@ -446,72 +450,43 @@ def toFloat(v):
 # format value or multivalue with formatter settings.
 # returns formatted result
 def formatValue(v,format):
-    
-    # check that format contains mandatory parameters and that parameter types are correct
-    # vFormat like {"item": "formatName", "param1":param1value, "param2":"param2value"}
-    # pattern like {"param1":{"type":dict,"mandatory":true}, "param2": ...}
-    # if mandatory parameter absent - raise exception
-    # if optional parameter absent - None value is added to vFormat
-    def _checkFormatParameters(vFormat,pattern):
-        for paramKey,paramOpts in pattern.items():
-            isMandatory=paramOpts.get('mandatory',True)
-            if isMandatory and (paramKey not in vFormat.keys()):
-                raise Exception("не указан параметр "+paramKey+" Проверьте настройку обработки результата")
-            else:
-                # (mandatory and present) or (not mandatory)
-                paramValue=vFormat.get(paramKey,None)
-                if paramValue is not None:
-                    paramType=paramOpts['type']
-                    # paramtype is list like [int, str, float, ...]
-                    # and type of value is absent in this list
-                    # \ or
-                    # paramtype is type (like float)
-                    # and type of value not equal it
-                    if (type(paramType)==list and (type(paramValue) not in paramType)) or \
-                       (type(paramType)!=list and (type(paramValue)!=paramType)):
-                        raise Exception("тип параметра "+paramKey+" задан неверно. Проверьте настройку обработки результата")                        
-                else:
-                    vFormat[paramKey]=None #paramValue
-
-
-    # value is single and format is {format}
+    # value is single and format is single
     def _do1value1format(v,format):
         
         if type(format) is not dict:
            raise Exception("проверьте настройку обработки результата")
         
         item=format.get("item",None)
+
         # convert to numeric value.
         # optional parameter "decimalplaces" is supported (default is 0)
         if item =="number":
-            _checkFormatParameters(format,{
+            params=checkParameters(format,{
                 "decimalplaces":{"type":int,
                                  "mandatory":False}}
             )
             v=toFloat(v)
-            decPlaces=format['decimalplaces']
+            decPlaces=params['decimalplaces']
             if decPlaces is not None:
                 v=round(v,decPlaces)
         # convert to boolean value.
         # optional lists [truevalues] and [falsevalues] are supported
         # default value is returned if not found in truevalues and falsevales
         elif item=="bool":
-            _checkFormatParameters(format,{
+            params=checkParameters(format,{
                 "truevalues":{"type":list,
                               "mandatory":False},
                 "falsevalues":{"type":list,
                                "mandatory":False},              
-                "default":{"type":bool,
-                               "mandatory":False},              
+                "default":{ "type":bool,
+                            "mandatory":False,
+                            "default":False},              
                 }
             )
-            if format['default'] is None:
-                default=False
-            else:
-                default=format['default']
-            
-            trueValues=format['truevalues']
-            falseValues=format['falsevalues']
+
+            default=params['default']
+            trueValues=params['truevalues']
+            falseValues=params['falsevalues']
 
             # both truevalues and falsevalues are specified
             if (trueValues is None) and (falseValues is None):
@@ -539,20 +514,19 @@ def formatValue(v,format):
         # find and replace text in string value (regEx supported)
         # mandatory strings "find" and "replace" must be specified
         elif item=="replace":
-            _checkFormatParameters(format,{
+            params=checkParameters(format,{
                 "find":{"type":str,
                         "mandatory":True},
                 "replace":{"type":str,
                            "mandatory":True},
                 "ignorecase":{"type":bool,
-                           "mandatory":False},
+                           "mandatory":False,
+                           "default":False},
                 }
             )
-            sFind=format['find']
-            sReplace=format['replace']
-            ignoreCase=format['ignorecase']
-            if ignoreCase is None:
-                ignoreCase=False
+            sFind=params['find']
+            sReplace=params['replace']
+            ignoreCase=params['ignorecase']
             
             if ignoreCase:
                 pattern=re.compile(sFind,re.IGNORECASE)
@@ -565,21 +539,30 @@ def formatValue(v,format):
         # add number to number value.
         # mandatory number "value" must be specified
         elif item=="add":
-            _checkFormatParameters(format,{
+            params=checkParameters(format,{
                 "value":{"type":[int,float],
                         "mandatory":True},
                 }
             )
-            v=toFloat(v)+format['value']
+            v=toFloat(v)+params['value']
         # multiply number to number value.
         # mandatory number "value" must be specified
         elif item=="multiply":
-            _checkFormatParameters(format,{
+            params=checkParameters(format,{
                 "value":{"type":[int,float],
                         "mandatory":True},
                 }
             )
-            v=toFloat(v)*format['value']
+            v=toFloat(v)*params['value']
+        # exclude tasks if got value from list specified.
+        elif item=="exclude":
+            params=checkParameters(format,{
+                "values":{"type":list,
+                        "mandatory":True},
+                }
+            )
+            if v in params['values']:
+                v=None
         else:
             raise Exception("поле item не задано либо некорректно. Проверьте настройку обработки результата")
             
@@ -606,6 +589,47 @@ def formatValue(v,format):
         return _do1value(v,format)
     return v
 
+# check that format contains mandatory parameters and that parameter types are correct
+# param like {"item": "formatName", "param1":param1value, "param2":"param2value"}
+# pattern like {"param1":{"type":dict,"mandatory":true}, "param2": ...}
+# if mandatory parameter absent - raise exception
+# if optional parameter absent - add to param "default" value or None
+# returns modified "param" value
+def checkParameters(param,pattern):
+    
+    param=param.copy()
+
+    #remove param items if absent in pattern
+    par2remove=set({k:None for k in param.keys() if k not in pattern.keys()})
+    for p2r in par2remove:
+        param.pop(p2r)
+
+    # check params
+    for paramKey,paramOpts in pattern.items():
+        isMandatory=paramOpts.get('mandatory',True)
+        if isMandatory and (paramKey not in param.keys()):
+            raise Exception("не указан параметр "+paramKey+" Проверьте настройку обработки результата")
+        else:
+            # (mandatory and present) or (not mandatory)
+            paramValue=param.get(paramKey,None)
+            if paramValue is not None:
+                paramType=paramOpts['type']
+                # paramtype is list of types like [int, str, float, ...]
+                # and check OK if type of value is in this list
+                # or
+                # paramtype is type (like float)
+                # and check OK if type of value is equal it
+                if (type(paramType)==list and (type(paramValue) not in paramType)) or \
+                   (type(paramType)!=list and (type(paramValue)!=paramType)):
+                    raise Exception("тип параметра "+paramKey+" задан неверно. Проверьте настройку обработки результата")                        
+            else:
+                # use default value if "default" key specified in pattern
+                defaultValue=paramOpts.get('default',None)
+                param[paramKey]=defaultValue
+    # param is modified in any case
+    return param
+
+
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
 # keys in every heartbeat task : 
 #   module - always == "heartbeat"
@@ -616,6 +640,8 @@ def formatValue(v,format):
 #   value - string or number with result
 #   timeStamp - value timestamp
 def processHeartBeatTasks(tasksToPoll):
+    task2remove=set()
+
     for taskKey,task in tasksToPoll.items():
 
         print("*********")
@@ -629,6 +655,10 @@ def processHeartBeatTasks(tasksToPoll):
                 task['error']="Не заданы настройки элемента данных"
             else:
                 item=taskConfig.get('item',None)
+                
+                # raise exception if specified and not equals to actual result count
+                expectedResultCount=taskConfig.get('resultcount',None)
+
                 if item is None:
                     task['error']="В настройках элемента данных не задано значение item"
                 else:
@@ -636,30 +666,65 @@ def processHeartBeatTasks(tasksToPoll):
                     # task['unit']="кг/ам"
 
                     try:
-                        if item=="ohwtable" or item=="snmptable":
-                            if taskConfig.get("include",None) is None:
-                                taskConfig['include']=[".*"]
-
                         if item=="ohwtable":
-                            filterSet={"include"}
-                            task['value']=taskOhwTableValue(**filterConfigParameters(taskConfig,filterSet))
+                            task['value']=taskOhwTableValue(**checkParameters(taskConfig,{
+                                "include":{ "type":list,
+                                            "mandatory":True},
+                                }))
                         elif item=="snmptable":
-                            filterSet={"oid","host","port", "readcommunity", "indexcol", "datacol", "include"}
-                            task['value']=taskSnmpTableValue(**filterConfigParameters(taskConfig,filterSet))
+                            task['value']=taskSnmpTableValue(**checkParameters(taskConfig,{
+                                "include":{ "type":list,
+                                            "mandatory":False,
+                                            "default":[".*"]},
+                                "oid":{ "type":str,
+                                        "mandatory":True},
+                                "host":{    "type":str,
+                                            "mandatory":False,
+                                            "default":"127.0.0.1"},
+                                "port":{    "type":int,
+                                            "mandatory":False,
+                                            "default":161},
+                                "readcommunity":{   "type":str,
+                                                    "mandatory":False,
+                                                    "default":"public"},
+                                "indexcol":{    "type":int,
+                                                "mandatory":True},
+                                "datacol":{     "type":int,
+                                                "mandatory":True},
+                                }))
                         else:
-                            task['error']="Неизвестный тип элемента данных: "+item
+                            raise Exception( "Неизвестный тип элемента данных: "+item)
                     except Exception as e:
                         task['error']=str(e)
 
                     if ('error' not in task.keys()):
+                        # if value is not set - got error
                         if ('value' not in task.keys()):
                             task['error']="Значение не вычислено"
                         else:
                             if task.get("format",None) is not None:
+                                # formatting value
                                 try:
                                     task['value']=formatValue(task['value'],task['format'])
                                 except Exception as e:
-                                    task['error']="обработка результата: "+str(e)                                
+                                    task['error']="обработка результата: "+str(e)
+                                
+                                value=task['value']
+                                actualResultCount=0
+                                
+                                # if value is set, but equals none - remove such task
+                                if value is None:
+                                    task2remove.add(taskKey)
+                                elif type(value)==dict:
+                                    # and for composite tasks - remove None results too
+                                    task['value']={k:v for k,v in value.items() if v is not None}
+                                    actualResultCount=len(task['value'])
+                                else:
+                                    actualResultCount=1
+
+                                if expectedResultCount is not None:
+                                    if expectedResultCount!=actualResultCount:
+                                        task['error']="в настройках задано результатов: "+str(expectedResultCount)+" фактически получено: "+str(actualResultCount)
 
         task.pop('config',None)
         task.pop('format',None)
@@ -668,6 +733,12 @@ def processHeartBeatTasks(tasksToPoll):
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
         task['timeStamp']=nowDateTime
+    #end for
+
+    # remove tasks that returned none
+    for t2r in task2remove:
+        tasksToPoll.pop(t2r)
+
 
 def agentStart():
     # print(taskOhmTableValue("/intelcpu/0/temperature/2"))

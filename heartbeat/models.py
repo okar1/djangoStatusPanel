@@ -242,7 +242,7 @@ class TaskSets(models.Model):
         sql="""
         select  
             Distinct ON (hosts.id,items.id,enabled)
-            items.id || '-' || hosts.id as "id",
+            hosts.id || '-' || items.id as "id",
             items.name as "itemname",
             items.key as "itemkey",
             items.unit,

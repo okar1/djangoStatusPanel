@@ -387,8 +387,8 @@ def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readc
     
     if len(res)==0:
         raise Exception("Не удалось найти значение в таблице SNMP")
-    elif len(res)==1:
-        return res[list(res.keys())[0]]
+    # elif len(res)==1:
+    #     return res[list(res.keys())[0]]
     else:
         return res
 
@@ -416,8 +416,8 @@ def taskOhwTableValue(include):
 
     if len(res)==0:
         raise Exception("Не удалось найти значение в таблице Open Hardware Monitor")
-    elif len(res)==1:
-        return res[list(res.keys())[0]]
+    # elif len(res)==1:
+    #     return res[list(res.keys())[0]]
     else:
         return res
 

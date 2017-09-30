@@ -290,64 +290,7 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
             continue
 
         # unpack tuple
-        mMetaData, mProperties, mData=msg
-
-        # example:
-
-        # --- metadata ---
-
-        # [(<Basic.Deliver(['consumer_tag=ctag1.3f91b60b79f7431a8d4b66a8906eaed3',
-        # 'delivery_tag=1',
-        # 'exchange=',
-        # 'redelivered=False',
-        # 'routing_key=test'])>,
-
-        # --- properties ---
-
-        # <BasicProperties(['content_encoding=UTF-8',
-        # 'content_type=application/json',
-        # 'delivery_mode=2',
-        # 'expiration=604800000',
-        # "headers={'x-received-from': [{'uri': 'amqp://192.168.116.60/test', 'exchange': 'qos.result', 'redelivered': False}], '__TypeId__': 'com.tecomgroup.qos.communication.message.TSStructureResultMessage', 'version': '1.0'}"])>,
-
-        # --- data ---
-
-        # b'{
-        #     "TSStructure": {
-        #         "ServiceList": [{
-        #             "Bitrate": 2449.9933304775377,
-        #             "PESList": [{
-        #                 "Bitrate": 2323.102415867024,
-        #                 "PESProperties": [.......]
-        #                 "Pid": 256,
-        #                 "StreamType": "27 (ITU-T Rec. H.264 and ISO/IEC 14496-10 (lower bit-rate video))",
-        #                 "Type": "Video"
-        #             },
-        #             .....
-        #             ],
-        #             "ServiceID": "1",
-        #             "ServiceProperties": [{
-        #                 "Name": "Name",
-        #                 "Value": "Service01"
-        #             },
-        #             .....
-        #             ]
-        #         }],
-        #         "TSID": 1,
-        #         "TSProperties": [{
-        #             "Name": "Bitrate",
-        #             "Value": 2522.838114790981
-        #         },
-        #         .....
-        #         ]
-        #     },
-        #     "originName": "BC_Test_All_Signal",
-        #     "taskKey": "BC_Test_All_Signal.TSStructure.71020",
-        #     "timestamp": "20170901055905"
-        # }'),
-
-        # next message ...
-        # ]        
+        mMetaData, mProperties, mData=msg      
 
         try:
             mHeaders=mProperties.headers
@@ -399,117 +342,6 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
     vServerErrors += formatErrors(errors, serverName, pollName)
 
 
-    # *** old not-async mq method bellow ***
-
-    # # mqAmqpConnection if first working mq was found and res is corresponding mqConf
-    # res=None
-    # mqAmqpConnection=None
-    # for mqConf in mqConfig:
-    #     try:
-    #         con = pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    #     except Exception as e:
-    #         errors += [str(e)]
-    #     else:
-    #         mqConnections += [mqConf]
-    #         if res is None:
-    #             res=mqConf
-    #             # use first working connection in later tasks
-    #             mqAmqpConnection=con
-    #         else:
-    #             # close all amqplink but first
-    #             if con.is_open:
-    #                 con.close()
-    # # endfor
-
-    # if (res is None) or (not vTasksToPoll):
-    #     return res
-
-    # # poll all rabbitmq instances for one cluster
-    # # calculate idletime for each task in tasks
-    # # store result in tasks[taskKey]["timestamp"]
-    # amqpLink = mqAmqpConnection.channel()
-    # mqMessages = [""]
-
-    # try:
-    #     amqpLink.queue_declare(queue=res['heartbeatQueue'], durable=True,arguments={'x-message-ttl':1800000})
-    # except Exception as e:
-    #     errors+= [str(e)]
-    #     vServerErrors += formatErrors(errors, serverName, pollName)
-    #     if mqAmqpConnection.is_open:
-    #         mqAmqpConnection.colse()
-    #     return res
-
-    # while len(mqMessages) > 0:
-
-    #     # connect and check errors (amqp)
-    #     getOk = None
-    #     try:
-    #         getOk, *mqMessages = amqpLink.basic_get(res['heartbeatQueue'], no_ack=True)
-    #     except Exception as e:
-    #         errors += [str(e)]
-    #         break
-
-    #     if getOk:
-    #         if mqMessages[0].content_type != 'application/json':
-    #             errors += ["Неверный тип данных " + mqMessages[0].content_type]
-    #             break
-    #         mqMessages = [mqMessages]
-    #     else:
-    #         mqMessages = []
-
-    #     # now we have list of mqMessages
-    #     for msg in mqMessages:
-
-    #         msgType = ""
-    #         try:
-    #             msgType = msg[0].headers['__TypeId__']
-    #         except Exception as e:
-    #             errStr = "Ошибка обработки сообщения: нет информации о типе."
-    #             if errStr not in errors:
-    #                 errors += [errStr]
-    #             continue
-
-    #         # parse message payload
-    #         try:
-    #             mData = json.loads((msg[1]).decode('utf-8'))
-    #             taskKey = mData['taskKey']
-    #             if taskKey not in vTasksToPoll.keys():
-    #                 errors += ["Задача " + taskKey + " не зарегистрирована в БД"]
-    #                 continue
-
-    #             if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
-
-    #                 taskResults = mData['results']
-    #                 for tr in taskResults:
-    #                     # if result has any parameters - store min task
-    #                     # idletime in vTasksToPoll
-    #                     if len(tr['parameters'].keys()) > 0:
-    #                         vTasksToPoll[taskKey]['timeStamp'] = tr['resultDateTime']
-
-    #             elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
-    #                 if len(mData['TSStructure']) > 0:
-    #                     vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
-    #             else:
-    #                 errStr = "Неизвестный тип сообщения: " + msgType
-    #                 if errStr not in errors:
-    #                     errors += [errStr]
-
-    #         except Exception as e:
-    #             errors += [str(e)]
-    #             vServerErrors += formatErrors(errors, serverName, pollName)
-    #             if mqAmqpConnection.is_open:
-    #                 mqAmqpConnection.colse()
-    #             return res
-
-    #     # endfor messages in current request
-    # # endwhile messages in rabbit queue
-
-    # vServerErrors += formatErrors(errors, serverName, pollName)
-    # if mqAmqpConnection.is_open:
-    #     mqAmqpConnection.close()
-    # return res
-
-
 # send heartbeat tasks request to rabbitmq exchange
 def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
@@ -557,7 +389,7 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                     # remove this composite task without value
                     tasksToRemove.add(taskKey)
                     
-                    newChildrenTasks={k:task.copy() for k in oldTasks.keys()}
+                    newChildrenTasks={k:task.copy() for k in oldChildrenTasks.keys()}
                     # add some parameters from oldChildrenTass to NewChildrenTasks
                     useOldParameters(newChildrenTasks,oldChildrenTasks)
                     # add early decomposed (children) tasks instead

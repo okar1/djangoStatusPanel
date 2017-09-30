@@ -3,7 +3,6 @@
 import pika
 import json
 from datetime import datetime
-from collections import OrderedDict
 
 # pyasn1 help http://www.red-bean.com/doc/python-pyasn1/pyasn1-tutorial.html#1.1.7
 from pysnmp import hlapi as snmp
@@ -295,14 +294,15 @@ def taskSnmp(oid=".0.0.0.0", host="127.0.0.1",port=161, readcommunity='public'):
     return res
 
 
-# get snmp table like OrderedDict {indexRow1:[col1,col2,col3],...}
+# get full snmp table like dict {indexRow1:[col1,col2,col3],...}
+# where indexRow is row's snmp oid end digit (differ for every row)
 # no error handling
 def _snmpGetTable(mainoid,host,port,readcommunity):
     # sample oid for table
     # oid=".1.3.6.1.2.1.4.20"
     if mainoid[0]=='.':
         mainoid=mainoid[1:]
-    res=OrderedDict()
+    res={}
 
     req = snmp.nextCmd(snmp.SnmpEngine(),
                 snmp.CommunityData(readcommunity),
@@ -368,10 +368,14 @@ def taskSnmpTableValue(include, oid=".0.0.0.0", host="127.0.0.1",port=161, readc
 
     tableId=oid+"&"+host+"&"+str(port)+"&"+readcommunity
     if tableId not in tableDict.keys():
-        tableList=_snmpGetTable(oid,host,port,readcommunity)
-        if len(tableList[0])-1<max(indexcol,datacol):
-            raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
-        table={row[indexcol]:row[datacol] for row in tableList}
+        tableList=list(_snmpGetTable(oid,host,port,readcommunity).values())
+        if tableList:
+            if len(tableList[0])-1<max(indexcol,datacol):
+                print(tableList)
+                raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
+            table={row[indexcol]:row[datacol] for row in tableList}
+        else:
+            table={}
         tableDict[tableId]=table
     else:
         table=tableDict[tableId]
@@ -504,24 +508,33 @@ def formatValue(v,format):
             if format['default'] is None:
                 default=False
             else:
-                default=format['truevalues']
+                default=format['default']
             
-            if format['truevalues'] is None:
-                trueValues=[1,'1',True,"true","True",'t','T',"y","Y"]
-            else:
-                trueValues=format['truevalues']
-            
-            if format['falsevalues'] is None:
-                falseValues=[0,'0',False,'false','False','f','F','n',"N"]
-            else:
-                falseValues=format['falsevalues']
+            trueValues=format['truevalues']
+            falseValues=format['falsevalues']
 
-            if v in trueValues:
-                v=True
-            elif v in falseValues:
-                v=False
+            # both truevalues and falsevalues are specified
+            if (trueValues is None) and (falseValues is None):
+                trueValues=[1,'1',True,"true","True",'t','T',"y","Y"]
+                falseValues=[0,'0',False,'false','False','f','F','n',"N"]
+                if v in trueValues:
+                    v=True
+                elif v in falseValues:
+                    v=False
+                else:
+                    v=default
+            # only truevalues are specified. Default value will be ignored
+            elif trueValues is not None:
+                if v in trueValues:
+                    v=True
+                else:
+                    v=False
+            # only falsevalues are specified. Default value will be ignored
             else:
-                v=default
+                if v in falseValues:
+                    v=False
+                else:
+                    v=True
 
         # find and replace text in string value (regEx supported)
         # mandatory strings "find" and "replace" must be specified
@@ -623,6 +636,10 @@ def processHeartBeatTasks(tasksToPoll):
                     # task['unit']="кг/ам"
 
                     try:
+                        if item=="ohwtable" or item=="snmptable":
+                            if taskConfig.get("include",None) is None:
+                                taskConfig['include']=[".*"]
+
                         if item=="ohwtable":
                             filterSet={"include"}
                             task['value']=taskOhwTableValue(**filterConfigParameters(taskConfig,filterSet))

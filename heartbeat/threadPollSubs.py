@@ -435,46 +435,37 @@ def calcIddleTime(vTasksToPoll):
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
 
     # extended error check and task markup for heartbeat tasks.
-    def markHeartBeatTask(tasksToPoll):
-        
-        for task in tasksToPoll.values():
+    def markHeartBeatTask(task):
 
-            # task not received any markup in standart markup process
-            # so, make extended check
-            if (task.get('module',None)=='heartbeat') and (task.get('style',None) is None):
+        # check that task received a value
+        if task.get('value',None) is None:
+            task['error']="Значение не вычислено"
+        else:
+            # do not store result in tasksToPoll[sometask]['value']
+            # use result for displaying only 
+            task['displayname']+=(" получено значение " + formatValue(task['value']))
 
-                # check that task received a value
-                if task.get('value',None) is None:
-                    task['error']="Значение не вычислено"
-                else:
-                    # do not store result in tasksToPoll[sometask]['value']
-                    # use result for displaying only 
-                    task['displayname']+=(" получено значение " + formatValue(task['value']))
-
-                    unit=task.get('unit',None)
-                    if unit is not None:
-                        task['displayname']+=(" "+unit)
+            unit=task.get('unit',None)
+            if unit is not None:
+                task['displayname']+=(" "+unit)
 
 
-                # check expected results count==actual count (if specified in settings)
-                expResCount=task['config'].get('resultcount',None)
-                if expResCount is not None:
-                    # user-specified key for item, like "cpu", "loadAverage" etc
-                    itemKey=task['itemKey']
-                    agentName=task['agentName']
-                    isTaskToCount=lambda t: \
-                        t.get('itemKey',None)==itemKey and \
-                        t.get('agentName',None)==agentName and \
-                        t.get('enabled',True)
-                    factResCount=sum([1 for t in tasksToPoll.values() if isTaskToCount(t) ])
-                    if expResCount!=factResCount:
-                        for t in tasksToPoll.values():
-                            if isTaskToCount(t):
-                                t['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
-                #end if
-
-            #end if style                  
-        #end for
+        # check expected results count==actual count (if specified in settings)
+        expResCount=task['config'].get('resultcount',None)
+        if expResCount is not None:
+            # user-specified key for item, like "cpu", "loadAverage" etc
+            itemKey=task['itemKey']
+            agentName=task['agentName']
+            isTaskToCount=lambda t: \
+                t.get('itemKey',None)==itemKey and \
+                t.get('agentName',None)==agentName and \
+                t.get('enabled',True)
+            factResCount=sum([1 for t in tasksToPoll.values() if isTaskToCount(t) ])
+            if expResCount!=factResCount:
+                for t in tasksToPoll.values():
+                    if isTaskToCount(t):
+                        t['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
+        #end if
     # end sub
 
     # converts value before displaying it into view
@@ -535,7 +526,13 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     # endfor
 
     #additional markup for heartbeat tasks. Data value, triggers
-    markHeartBeatTask(tasksToPoll)
+    for task in tasksToPoll.values():
+        # task not received any markup or error in standart markup process
+        # so, make extended check
+        if (task.get('module',None)=='heartbeat') and \
+                (task.get('style',None) is None) and \
+                (task.get('error',None) is None):
+            markHeartBeatTask(task)
 
     # display error text in task caption
     for taskKey, task in tasksToPoll.items():

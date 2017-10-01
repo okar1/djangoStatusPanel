@@ -441,7 +441,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 
             # task not received any markup in standart markup process
             # so, make extended check
-            if task.get('style',None) is None:
+            if (task.get('module',None)=='heartbeat') and (task.get('style',None) is None):
 
                 # check that task received a value
                 if task.get('value',None) is None:

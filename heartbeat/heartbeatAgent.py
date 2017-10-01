@@ -655,9 +655,6 @@ def processHeartBeatTasks(tasksToPoll):
                 task['error']="Не заданы настройки элемента данных"
             else:
                 item=taskConfig.get('item',None)
-                
-                # raise exception if specified and not equals to actual result count
-                expectedResultCount=taskConfig.get('resultcount',None)
 
                 if item is None:
                     task['error']="В настройках элемента данных не задано значение item"
@@ -697,34 +694,23 @@ def processHeartBeatTasks(tasksToPoll):
                     except Exception as e:
                         task['error']=str(e)
 
-                    if ('error' not in task.keys()):
-                        # if value is not set - got error
-                        if ('value' not in task.keys()):
-                            task['error']="Значение не вычислено"
-                        else:
-                            if task.get("format",None) is not None:
-                                # formatting value
-                                try:
-                                    task['value']=formatValue(task['value'],task['format'])
-                                except Exception as e:
-                                    task['error']="обработка результата: "+str(e)
-                                
-                                value=task['value']
-                                actualResultCount=0
-                                
-                                # if value is set, but equals none - remove such task
-                                if value is None:
-                                    task2remove.add(taskKey)
-                                elif type(value)==dict:
-                                    # and for composite tasks - remove None results too
-                                    task['value']={k:v for k,v in value.items() if v is not None}
-                                    actualResultCount=len(task['value'])
-                                else:
-                                    actualResultCount=1
+                    # got a value, not got a error
+                    if ('error' not in task.keys()) and ('value' in task.keys()):
 
-                                if expectedResultCount is not None:
-                                    if expectedResultCount!=actualResultCount:
-                                        task['error']="в настройках задано результатов: "+str(expectedResultCount)+" фактически получено: "+str(actualResultCount)
+                        # formatting value
+                        if task.get("format",None) is not None:
+                            try:
+                                task['value']=formatValue(task['value'],task['format'])
+                            except Exception as e:
+                                task['error']="обработка результата: "+str(e)    
+                        value=task['value']
+                            
+                        # value is set, but equals none - remove such task
+                        if value is None:
+                            task2remove.add(taskKey)
+                        elif type(value)==dict:
+                            # and for composite tasks - remove None results too
+                            task['value']={k:v for k,v in value.items() if v is not None}
 
         task.pop('config',None)
         task.pop('format',None)

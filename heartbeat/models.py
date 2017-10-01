@@ -310,6 +310,7 @@ class TaskSets(models.Model):
             taskKey="heartbeat." + str(task.id) + "." + task.itemkey
             taskValue={
                     "agentKey":task.hostkey,
+                    "itemKey":task.itemkey,
                     "agentName":task.hostname,
                     "module":"heartbeat",
                     "displayname":task.itemname,

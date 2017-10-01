@@ -176,7 +176,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         
         if serverMode:            
             if taskKey not in tasksToPoll.keys():
-                vErrors += ['Ошибка обработки сообщения: неверный ключ.']
+                vErrors += ['Ошибка обработки сообщения: неверный ключ '+taskKey]
                 return vErrors
            
             tasksToPoll[taskKey]['value']=msgBody
@@ -446,7 +446,15 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 # check that task received a value
                 if task.get('value',None) is None:
                     task['error']="Значение не вычислено"
-                    updateTaskErrorMsg(task)
+                else:
+                    # do not store result in tasksToPoll[sometask]['value']
+                    # use result for displaying only 
+                    task['displayname']+=(" получено значение " + formatValue(task['value']))
+
+                    unit=task.get('unit',None)
+                    if unit is not None:
+                        task['displayname']+=(" "+unit)
+
 
                 # check expected results count==actual count (if specified in settings)
                 expResCount=task['config'].get('resultcount',None)
@@ -463,7 +471,6 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                         for t in tasksToPoll.values():
                             if isTaskToCount(t):
                                 t['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
-                                updateTaskErrorMsg(t)
                 #end if
 
             #end if style                  
@@ -472,7 +479,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 
     # converts value before displaying it into view
     def formatValue(v):
-        
+
         # display string values in quotes
         if type(v)==str:
             return "\""+v+"\""
@@ -490,44 +497,12 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 
         return str(v)
 
-    # how task is visible: label
-    def updateTaskCaption(taskKey, task, idleTime):
-        res = "{0} ({1}) : ".format(taskKey, task['displayname'])
-        if idleTime is not None:
-            res+=(str(idleTime)+" сек назад")
-
-        value=task.get('value',None)
-        if value is not None:
-            res+=" получено значение "
-            if type(value)==float and value==int(value):
-                value=int(value)
-            # do not store result in tasksToPoll[sometask]['value']
-            # use result for displaying only 
-            res+=formatValue(value)
-    
-            unit=task.get('unit',None)
-            if unit is not None:
-                res+=(" "+unit)
-
-        task['displayname']=res
-    # end sub
-
-    # how task is visible: error message & color
-    def updateTaskErrorMsg(task):
-        res = task['displayname']
-        error=task.get('error',None)
-        style=task.get('style',None)
-        if (error is not None) and (style is None):
-            task['style'] = 'rem'
-            res+=(" ошибка : " + error)
-        task['displayname']=res
-    # end sub
 
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
 
-    # common task markup
+    # common task markup. Time and status of data recieve
     for taskKey, task in tasksToPoll.items():
         if not task.get('enabled',True):
             task['displayname'] = "{0} ({1}) : Задача отключена".format(
@@ -540,13 +515,11 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             else:
                 idleTime=None
 
-            if task.get('error',None) is not None:
-                updateTaskCaption(taskKey,task,idleTime)
-                updateTaskErrorMsg(task)
-            else:
+            task['displayname'] = "{0} ({1}) : ".format(taskKey, task['displayname'])
+
+            if task.get('error',None) is None:
                 if idleTime is None:
-                    task['displayname'] = "{0} ({1}) : Данные не получены".format(
-                        taskKey, task['displayname'])
+                    task['displayname'] += "Данные не получены"
                     # if task is absent in previous poll - then not mark it as error
                     if taskKey in oldTasks.keys():
                         task['style'] = 'rem'
@@ -556,14 +529,20 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     if abs(idleTime) > \
                             3 * max(task['period'], pollingPeriodSec):
                         task['style'] = 'rem'
-
-                    updateTaskCaption(taskKey,task,idleTime)
+                    task['displayname']+=(str(idleTime)+" сек назад")
             # endif task error
         # endif task enabled
     # endfor
 
-    #apply additional markup for heartbeat tasks 
+    #additional markup for heartbeat tasks. Data value, triggers
     markHeartBeatTask(tasksToPoll)
+
+    # display error text in task caption
+    for taskKey, task in tasksToPoll.items():
+        error=task.get('error',None)
+        if (error is not None):
+            task['style'] = 'rem'
+            task['displayname']+=(" ошибка : " + error)
 
 
 # create box for every agent (controlblock)

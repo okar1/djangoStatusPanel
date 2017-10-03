@@ -307,7 +307,8 @@ class TaskSets(models.Model):
         res={}
         for task in tasks:
             # taskKey=task.hostkey + '.heartbeat.' + task.itemkey
-            taskKey="heartbeat." + str(task.id) + "." + task.itemkey
+            # taskKey="heartbeat." + str(task.id) + "." + task.itemkey
+            taskKey=task.hostkey + "." + str(task.id) + "." + task.itemkey
             taskValue={
                     "agentKey":task.hostkey,
                     "itemKey":task.itemkey,

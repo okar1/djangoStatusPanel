@@ -488,42 +488,80 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 
         return str(v)
 
+    def secondsCountToHumanString(sec):
+        weekSec=604800
+        daySec=86400
+        hourSec=3600
+        minSec=60
+        if sec//weekSec>0:
+            cnt=sec//weekSec
+            if cnt%10==1:
+                unit="неделю"
+            elif cnt%10<=4:
+                unit="недели"
+            else:
+                unit="недель"
+
+        elif sec//daySec>0:
+            cnt=sec//daySec
+            if cnt%10==1:
+                unit = "день"
+            elif cnt%10<=4:
+                unit = "дня"
+            else:
+                unit = "дней"
+
+        elif sec//hourSec>0:
+            cnt=sec//hourSec
+            unit="ч"
+
+        elif sec//minSec>0:
+            cnt=sec//minSec
+            unit="мин"
+
+        else:
+            cnt=sec
+            unit="сек"
+        return str(cnt) + " "+unit
+
 
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
 
-    # common task markup. Time and status of data recieve
+    # common task markup. status of data recieve
     for taskKey, task in tasksToPoll.items():
         if not task.get('enabled',True):
-            task['displayname'] = "{0} ({1}) : Задача отключена".format(
-                taskKey, task['displayname'])
             task['style'] = 'ign'
+            task['displayname'] = "{0} ({1}) : Задача отключена".format(taskKey, task['displayname'])
         else:
-            
-            if "idleTime" in task.keys():
-                idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
-            else:
-                idleTime=None
-
             task['displayname'] = "{0} ({1}) : ".format(taskKey, task['displayname'])
 
-            if task.get('error',None) is None:
-                if idleTime is None:
-                    task['displayname'] += "Данные не получены"
-                    # if task is absent in previous poll - then not mark it as error
-                    if taskKey in oldTasks.keys():
-                        task['style'] = 'rem'
-                    else:
-                        task['style'] = 'ign'
+            if task.get('idleTime', None) is None:
+                # if task is absent in previous poll - then not mark it as error
+                if taskKey in oldTasks.keys():
+                    # task['style'] = 'rem'
+                    task['error'] = "задача не присылает данные"
                 else:
-                    if abs(idleTime) > \
-                            3 * max(task['period'], pollingPeriodSec):
-                        task['style'] = 'rem'
-                    task['displayname']+=(str(idleTime)+" сек назад")
-            # endif task error
+                    task['style'] = 'ign'
+                    task['displayname'] += "задача не присылает данные"
+
         # endif task enabled
     # endfor
+
+    noDataForLongTimeError='задача не присылает данные длительное время'
+    # common task markup. iddle time
+    for task in tasksToPoll.values():
+        if task.get('style',None) is None:
+            if "idleTime" in task.keys():
+                idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
+
+                if abs(idleTime) > \
+                        3 * max(task['period'], pollingPeriodSec):
+                    if task.get('error',None) is None:
+                        task['error'] = noDataForLongTimeError
+                task['displayname']+=(" "+secondsCountToHumanString(idleTime)+" назад")
+    #end for
 
     #additional markup for heartbeat tasks. Data value, triggers
     for task in tasksToPoll.values():
@@ -531,7 +569,8 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         # so, make extended check
         if (task.get('module',None)=='heartbeat') and \
                 (task.get('style',None) is None) and \
-                (task.get('error',None) is None):
+                (task.get('error',noDataForLongTimeError)==noDataForLongTimeError):
+            # if no error or noDataForLongTimeError
             markHeartBeatTask(task)
 
     # display error text in task caption

@@ -14,7 +14,7 @@ def tupleToString(v):
 
 
 
-def query(channelNameRegex=".*", agentList=(), channelList=(),moduleList=(), resultType=("agent","channel","module","parameterName","taskName","taskKey")):
+def query(channelNameRegex=".*",levelNameRegex=".*", agentList=(), channelList=(),moduleList=(), resultType={"level","agent","channel","module","parameterName","taskName","taskKey"}):
 	try:
 	    conn = psycopg2.connect("dbname='qos' user='qos' host='localhost' password='Tecom1' port=5432")
 	except psycopg2.Error as err:
@@ -31,6 +31,14 @@ def query(channelNameRegex=".*", agentList=(), channelList=(),moduleList=(), res
 		channelNameRegex=".*"
 
 	allowedChannelSQL="substring(mgrouppolicy.taskidentifier_taskname from '{0}')".format(channelNameRegex)
+
+	if levelNameRegex.find('"')!=-1 or levelNameRegex.find("'")!=-1:
+		raise Exception("""levelNameRegex could not contain ' or " for security reasons""")
+
+	if levelNameRegex is None or levelNameRegex=="":
+		levelNameRegex=".*"
+
+	allowedLevelSQL="substring(mgrouppolicy.taskidentifier_taskname from '{0}')".format(levelNameRegex)
 
 	sectDistinct=[]
 	sectSelect=[]
@@ -60,10 +68,13 @@ def query(channelNameRegex=".*", agentList=(), channelList=(),moduleList=(), res
 	if "channel" in resultType:
 		sectDistinct.append('"chanelName"')
 		sectSelect.append(allowedChannelSQL+' as "chanelName"')
-		#sectSelect.append("""array_to_string(regexp_matches(mgrouppolicy.taskidentifier_taskname,'{0}'),'') as "chanelName" """.format(allowedChannelNames))
-		#sectSelect.append("""split_part(mgrouppolicy.taskidentifier_taskname,'~~',1) as "chanelName" """)
 		sectGroup.append('mgrouppolicy.taskidentifier_taskname')
 		sectOrder.append('"chanelName" ASC')
+	if "level" in resultType:
+		sectDistinct.append('"levelName"')
+		sectSelect.append(allowedLevelSQL+' as "levelName"')
+		sectGroup.append('mgrouppolicy.taskidentifier_taskname')
+		sectOrder.append('"levelName" ASC')
 	if "taskName" in resultType:
 		sectDistinct.append('"taskName"')
 		sectSelect.append('mgrouppolicy.taskidentifier_taskname as "taskName"')
@@ -94,6 +105,7 @@ def query(channelNameRegex=".*", agentList=(), channelList=(),moduleList=(), res
 		  qos.magenttask
 		WHERE 
 		  {5} IS NOT NULL AND  --только задачи, из которых получилось вытащить имя каналп regexом
+		  {6} IS NOT NULL AND  --только задачи, из которых получилось вытащить название уровня regexом
 		  magenttask.entity_key like mgrouppolicy_agent_list.agent_name || '%' AND
 		  magenttask.entity_key like '%'  || mgrouppolicy.taskidentifier_modulename || '%' AND
 		  mgrouppolicy_agent_list.id = mgrouppolicy.id AND
@@ -107,7 +119,14 @@ def query(channelNameRegex=".*", agentList=(), channelList=(),moduleList=(), res
 		ORDER BY
 			{4}
 		--LIMIT 200  ;
-		""".format(sectDistinct,sectSelect,sectWhere,sectGroup,sectOrder,allowedChannelSQL)
+		""".format(sectDistinct,
+			sectSelect,
+			sectWhere,
+			sectGroup,
+			sectOrder,
+			allowedChannelSQL if "channel" in resultType else "1",
+			allowedLevelSQL if "level" in resultType else "1"
+		)
 		
 	# print(sqlString)
 	data=[]

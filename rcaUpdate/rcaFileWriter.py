@@ -131,7 +131,7 @@ def _do_channelKeyName(rusName):
 #********************************************
 #********************************************
 #main sub. Read DB and call writer
-def makeFile(pAlertTypeTemplate,pChannelNameRegex,pRules,pOriginatorId,pRcaSeverity,pOutputFile):
+def makeFile(pAlertTypeTemplate,pChannelNameRegex,pLevelNameRegex,pRules,pOriginatorId,pRcaSeverity,pOutputFile):
 
 	#db query must be gr as: agent->module->task->parameter
 	# expected indices of columns in db table
@@ -140,14 +140,17 @@ def makeFile(pAlertTypeTemplate,pChannelNameRegex,pRules,pOriginatorId,pRcaSever
 	iTask=2
 	iParameter=3
 	iChannel=4
+	iLevel=5
 
-	db=query(channelNameRegex=pChannelNameRegex)
+	db=query(channelNameRegex=pChannelNameRegex,levelNameRegex=pLevelNameRegex)
 	res = CustomDict()
 
 	for curLine in range(len(db)):
 		cursor=db[curLine]
 		
 		alertTypeKey=pAlertTypeTemplate
+		if alertTypeKey.find("{level}")!=-1:
+			alertTypeKey=alertTypeKey.replace("{level}",cursor[iLevel])		
 		if alertTypeKey.find("{channel}")!=-1:
 			alertTypeKey=alertTypeKey.replace("{channel}",_do_channelKeyName(cursor[iChannel]))
 		if alertTypeKey.find("{agent}")!=-1:
@@ -161,7 +164,7 @@ def makeFile(pAlertTypeTemplate,pChannelNameRegex,pRules,pOriginatorId,pRcaSever
 		
 		rowData=processDbRow(
 			pOrder=[itmplParameter,itmplTask,itmplModule,itmplAgent,itmplLevel,itmplGroup],
-			pNames=[cursor[iParameter],cursor[iTask],cursor[iModule],cursor[iAgent],alertTypeKey,alertTypeKey],
+			pNames=[cursor[iParameter],cursor[iTask],cursor[iModule],cursor[iAgent],cursor[iLevel],alertTypeKey],
 		)
 
 		taskKey=cursor[iAgent]+"."+cursor[iModule]+"."+cursor[iTask]
@@ -170,6 +173,11 @@ def makeFile(pAlertTypeTemplate,pChannelNameRegex,pRules,pOriginatorId,pRcaSever
 		#merge common result with data of current row
 		mergeDict(res,rowData)
 	#endfor db	
+
+	# - optional - can be ommited - for Velcom only
+	# velcom level names is the first number of resolution in string format (like "640", "1024" etc)
+	# sorting level priority, giving higher priority to higher resolution
+	sortLevelPriorityByName(res)
 
 	print ("following alertTypes was created:")
 	for item in res.values():
@@ -187,27 +195,73 @@ def makeFile(pAlertTypeTemplate,pChannelNameRegex,pRules,pOriginatorId,pRcaSever
 
 #********************************************
 #********************************************
+#*********see description upper. VELCOM comsumer only
+def sortLevelPriorityByName(res):
+	for group in res.values():
+		levels=group['levels'].values()
+
+		# velcom level names is the first number of resolution in string format (like "640", "1024" etc)
+		screenResolutions=[int(level['name']) for level in levels]
+		screenResolutions.sort()
+		errorChecker=set(screenResolutions)
+		# print(screenResolutions)
+
+		maxPriority=0
+		maxPriorityLevel=None
+		for level in group['levels'].values():
+			levelResolution=int(level['name'])
+			priority=1+screenResolutions.index(levelResolution)
+
+			if priority>maxPriority:
+				maxPriority=priority
+				maxPriorityLevel=level
+			level['priority']= priority
+			# if DB contains >1 levels with same resolution - it is wrong
+			# errorchecker is made for causing error in this case
+			errorChecker.remove(levelResolution)
+
+		assert len(screenResolutions)==maxPriorityLevel['priority']
+		assert screenResolutions[len(screenResolutions)-1]==int(maxPriorityLevel['name'])
+
+		agent=list(maxPriorityLevel['agents'].values())[0]
+		module=list(agent['modules'].values())[0]
+		task=list(module['tasks'].values())[0]
+
+		# assert that level has one agent, agent - one module and module - one task
+		# (it works for Velcom only)
+		maxPriorityTaskKey=agent['key']+"."+module['name']+"."+task['name']
+
+		# set "taskkey" parameter for group to key of task with max priority
+		group['taskKey']=maxPriorityTaskKey
+		# print(screenResolutions, maxPriorityTaskKey,maxPriorityLevel['name'])
+
 #********************************************
+#********************************************
+#********************************************
+
 if __name__ == "__main__":
 	#channelNameRegex для Рт - 5 групп по 3 символа через точку. В каждой группе буквы,цифры,+ или _. Первая группа - начинается с буквы
 	#channelNameRegex=r"[a-zA-Z][a-zA-Z0-9_+]{2}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}"
 	# для бел "что то - имя канала - что то"
 	channelNameRegex=r"^.*?- *(.*?) *-"
+	levelNameRegex=r"^.*?(\d{3,})x\d{3,}"
+
 
 	# key for grouping tasks to rca groups
-	# available fields: {agent} {channel} {module} {task} {parameter}
+	# available fields: {level} {agent} {channel} {module} {task} {parameter}
 	alertTypeTemplate="{channel}.{module}.{parameter}"
 
 	makeFile(
 		pAlertTypeTemplate=alertTypeTemplate,
 		pChannelNameRegex=channelNameRegex,
+		pLevelNameRegex=levelNameRegex,
 		pRules=["L2"],
 		pOriginatorId=29681,
 		pRcaSeverity=4,
 		pOutputFile=r"d:\files\rs",)
 
-	q=query(channelNameRegex=channelNameRegex)
-	print(len(q), "db records with channelName detected")
+	q=query(channelNameRegex=channelNameRegex, levelNameRegex=levelNameRegex)
+	print(len(q), "db records with channelName and levelName detected")
 
 	q=query()
 	print(len(q), "db records total")

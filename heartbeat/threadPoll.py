@@ -5,6 +5,7 @@ import sys
 from .models import Servers, Options, TaskSets
 from . import threadPollSubs as subs
 from .threadMqConsumers import MqConsumers
+from . import timeDB
 
 isTestEnv=False
 
@@ -107,10 +108,21 @@ def threadPoll():
                     opt,
                     serverErrors)
 
-            # tasksToPoll,serverErrors -> pollResult
+            # tasksToPoll,serverErrors -> serverPollResult
             # grouping tasks to boxes by agentKey, also create +1 box for server errors
-            # then save this server's boxes to pollresult
-            subs.makePollResult(tasksToPoll, server.name, serverErrors, pollResult)
+            serverPollResult=subs.makePollResult(tasksToPoll, server.name, serverErrors)
+
+            # commit poll results of current server to timeDB (now it is influxDB)
+            try:
+                timeDB.commitPollResult(serverConfig['timeDB'],serverPollResult)
+            except Exception as e:
+                # on commit execption - add error message to serverErrors
+                serverErrors+=subs.formatErrors([str(e)], server.name, "commitResult")
+                # and rebuild pollResult with new serverErrors
+                serverPollResult=subs.makePollResult(tasksToPoll, server.name, serverErrors)                
+
+            # add this server poll result to global poll result
+            pollResult+=serverPollResult
 
             threadPoll.oldTasks[server.name] = tasksToPoll
             tasksToPoll = None

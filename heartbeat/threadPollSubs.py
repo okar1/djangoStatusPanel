@@ -584,7 +584,8 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 # create box for every agent (controlblock)
 # agents like {agent:[tasks]}
 # taskstopoll -> pollResult
-def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
+def makePollResult(tasksToPoll, serverName, serverErrors):
+    pollResult=[]
     agents = {}
     agentHasErrors = set()
     if tasksToPoll is not None:
@@ -611,11 +612,18 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
             if task.get('style', None) == 'rem':
                 agentHasErrors.add(boxName)
 
+            # processing errors for tasks without timestamp and tasks with old timestamp
+            # taskStyle = task.get('style', None)
+            # if taskStyle is not None:
+            #     taskData.update({"style": taskStyle})
+            #     if taskStyle == 'rem':
+            #         agentHasErrors.add(boxName)
+
             curTasks += [taskData]
 
-    # add box with server errors to vPollresult
+    # add box with server errors to pollresult
     if len(serverErrors) > 0:
-        vPollResult += [{
+        pollResult += [{
             "id": serverName,
             "name": serverName,
             "pollServer": serverName,
@@ -637,7 +645,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
     for taskData in agents.values():
         taskData.sort(key=sortTasks)
 
-    # add agents with errors to vPollresult
+    # add agents with errors to pollresult
     resultWithErrors = [{
         "id": serverName + '.' + key,
         "name": key,
@@ -646,16 +654,18 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
         "pollServer": serverName}
         for key, taskData in agents.items()
         if key in agentHasErrors]
-    vPollResult += resultWithErrors
+    pollResult += resultWithErrors
 
-    # add agents without errors to vPollresult
+    # add agents without errors to pollresult
     resultNoErrors = [{"id": serverName + '.' + key,
                        "name": key,
                        "data": taskData,
                        "pollServer": serverName}
                       for key, taskData in agents.items()
                       if key not in agentHasErrors]
-    vPollResult += resultNoErrors
+    pollResult += resultNoErrors
+
+    return pollResult
 
 
 def pollResultSort(vPollResult):

@@ -87,6 +87,11 @@ class Servers(models.Model):
             be.server.fieldOptions = dict(
                 label="Backend хост", initial="localhost", help_text="например be.node.qos", required=False)
 
+        with fieldTemplate.timeDB as timeDB:
+            timeDB.httpUrl.fieldClass = forms.CharField
+            timeDB.httpUrl.fieldOptions = dict(
+                label="Url для сохранения результатов", initial="", help_text="например http://localhost:1086/write?db=имяБД", required=False)
+
         return fieldTemplate
 
     name = models.CharField(
@@ -132,7 +137,7 @@ class Servers(models.Model):
         # {'fe': [{'server':'localhost'}]}
         return {nodeName: [{nodeKey: decryptPwdField(nodeKey, nodeValue[i])
                             for i, nodeKey in enumerate(template[nodeName].keys()) if i < len(nodeValue)}
-                           for nodeValue in config[nodeName] if nodeName in config.keys() and type(nodeValue) == list]
+                           for nodeValue in config.get(nodeName,[]) if type(nodeValue) == list]
                 for nodeName in template.keys()}
 
     class Meta:

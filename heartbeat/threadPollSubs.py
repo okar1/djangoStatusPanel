@@ -179,7 +179,9 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 vErrors += ['Ошибка обработки сообщения: неверный ключ '+taskKey]
                 return vErrors
            
-            tasksToPoll[taskKey]['value']=msgBody
+            # not set value tag on empty string receive
+            if msgBody!='':
+                tasksToPoll[taskKey]['value']=msgBody
             tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
             tasksToPoll[taskKey]['unit']=taskUnit
             if "error" in headers.keys():

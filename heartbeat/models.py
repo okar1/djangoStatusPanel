@@ -314,7 +314,7 @@ class TaskSets(models.Model):
                     "itemKey":task.itemkey,
                     "agentName":task.hostname,
                     "module":"heartbeat",
-                    "displayname":task.itemname,
+                    "itemName":task.itemname,
                     "unit":task.unit,
                     "period":pollingPeriodSec,
                     "enabled":task.enabled

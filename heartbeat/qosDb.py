@@ -65,7 +65,7 @@ def getTasks(dbConnection):
         cur.execute(sql)
         rows = cur.fetchall()
 
-        result = {row[2]: {"agentKey": row[0], "agentName":row[1], "displayname": row[3],
+        result = {row[2]: {"agentKey": row[0], "agentName":row[1], "itemName": row[3],
             "period": int(row[4])} for row in rows}
         return (error, result)
     except Exception as e:

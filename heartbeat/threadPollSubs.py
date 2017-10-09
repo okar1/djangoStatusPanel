@@ -533,9 +533,9 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     for taskKey, task in tasksToPoll.items():
         if not task.get('enabled',True):
             task['style'] = 'ign'
-            task['displayname'] = "{0} ({1}) : Задача отключена".format(taskKey, task['displayname'])
+            task['displayname'] = "{0} ({1}) : Задача отключена".format(taskKey, task['itemName'])
         else:
-            task['displayname'] = "{0} ({1}) : ".format(taskKey, task['displayname'])
+            task['displayname'] = "{0} ({1}) : ".format(taskKey, task['itemName'])
 
             if task.get('idleTime', None) is None:
                 # if task is absent in previous poll - then not mark it as error
@@ -601,12 +601,15 @@ def makePollResult(tasksToPoll, serverName, serverErrors, vPollResult):
             taskData = {"id": serverName + '.' +
                         taskKey, "name": task['displayname']}
 
-            # processing errors for tasks without timestamp and tasks with old timestamp
-            taskStyle = task.get('style', None)
-            if taskStyle is not None:
-                taskData.update({"style": taskStyle})
-                if taskStyle == 'rem':
-                    agentHasErrors.add(boxName)
+            # filter parameters to write from tasksToPoll to pollResult
+            taskData.update({key:task[key] 
+                for key in 
+                    #agentName not included - because it already presents in box name
+                    ["style","agentKey","timeStamp","enabled","unit","value","error","itemName"]
+                if key in task.keys()})
+
+            if task.get('style', None) == 'rem':
+                agentHasErrors.add(boxName)
 
             curTasks += [taskData]
 

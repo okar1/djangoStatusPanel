@@ -129,6 +129,8 @@ def threadPoll():
         # poll completed, set pollResult accessible to others
         threadPoll.pollResult = pollResult
 
+        # print(pollResult)
+
         # print(int(time.time()-threadPoll.pollTimeStamp), 'seconds cycle')
         threadPoll.pollTimeStamp = int(time.time())
 

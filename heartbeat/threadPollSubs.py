@@ -164,7 +164,6 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         try:
             headers = msg[1].headers
             taskKey=headers['key']
-            taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
         except Exception as e:
             errStr = "Ошибка обработки сообщения: неверный заголовок."
@@ -194,11 +193,21 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 if errStr not in vErrors:
                     vErrors += [errStr]
                 continue
-           
+
+            try:
+                stringTimeStamp=headers['timestamp']
+                taskTimeStamp=datetime.strptime(stringTimeStamp, timeStampFormat)
+                tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
+            except Exception as e:
+                errStr = "Ошибка обработки сообщения: неверная метка времени."
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
+
             # not set value tag on empty string receive
             if msgBody!='':
                 tasksToPoll[taskKey]['value']=msgBody
-            tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
+
             tasksToPoll[taskKey]['unit']=taskUnit
             if "error" in headers.keys():
                 tasksToPoll[taskKey]['error']=headers['error']
@@ -209,13 +218,14 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
     # endfor messages in current request
     return vErrors
 
-
 def formatErrors(errors, serverName, pollName):
     return [{
         'id': serverName + '.' + pollName + '.' + str(i),
         'name': pollName + ": " + text,
         'error': text,
-        'style': 'rem'}
+        'style': 'rem',
+        # this is error message from server, not an actual task
+        'servertask':True} 
         for i, text in enumerate(errors)]
 
 
@@ -340,14 +350,13 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
 
                 taskResults = mData['results']
                 for tr in taskResults:
-                    # if result has any parameters - store min task
-                    # idletime in vTasksToPoll
+                    # if result has any parameters - store in timeStamp vTasksToPoll
                     if len(tr['parameters'].keys()) > 0:
-                        vTasksToPoll[taskKey]['timeStamp'] = tr['resultDateTime']
+                        vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], timeStampFormat)
 
             elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
                 if len(mData['TSStructure']) > 0:
-                    vTasksToPoll[taskKey]['timeStamp'] = mData['timestamp']
+                    vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(mData['timestamp'], timeStampFormat)
             else:
                 errors.add("Неизвестный тип сообщения: " + msgType)
                 continue
@@ -440,17 +449,6 @@ def useOldParameters(vTasksToPoll, oldTasks):
                 task['parentkey'] = oldTasks[taskKey]['parentkey']
 
 
-def calcIddleTime(vTasksToPoll):
-    # calculate iddle time
-    for taskKey, task in vTasksToPoll.items():
-        if 'timeStamp' in task.keys():
-            # "20170610151013"
-            resultDateTime = datetime.strptime(
-                task['timeStamp'], timeStampFormat)
-            utcNowDateTime = datetime.utcnow()
-            task["idleTime"] = utcNowDateTime - resultDateTime
-
-
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
 
     # extended error check and task markup for heartbeat tasks.
@@ -459,15 +457,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         # check that task received a value
         if task.get('value',None) is None:
             task['error']="Значение не вычислено"
-        else:
-            # do not store result in tasksToPoll[sometask]['value']
-            # use result for displaying only 
-            task['displayname']+=(" получено значение " + formatValue(task['value']))
-
-            unit=task.get('unit',None)
-            if unit is not None:
-                task['displayname']+=(" "+unit)
-
+            return
 
         # check expected results count==actual count (if specified in settings)
         expResCount=task['config'].get('resultcount',None)
@@ -484,65 +474,10 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 for t in tasksToPoll.values():
                     if isTaskToCount(t):
                         t['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
+                return
+            #end if
         #end if
     # end sub
-
-    # converts value before displaying it into view
-    def formatValue(v):
-
-        # display string values in quotes
-        if type(v)==str:
-            return "\""+v+"\""
-
-        # display floating numbers without decimal place as integer (ex "23" instead "23.0")
-        if type(v)==float and v==int(v):
-            v=int(v)
-
-        # predefined strings for boolean values
-        if type(v)==bool:
-            if v:
-                v="ДА"
-            else:
-                v="НЕТ"
-                
-        return str(v)
-
-    def secondsCountToHumanString(sec):
-        weekSec=604800
-        daySec=86400
-        hourSec=3600
-        minSec=60
-        if sec//weekSec>0:
-            cnt=sec//weekSec
-            if cnt%10==1:
-                unit="неделю"
-            elif cnt%10<=4:
-                unit="недели"
-            else:
-                unit="недель"
-
-        elif sec//daySec>0:
-            cnt=sec//daySec
-            if cnt%10==1:
-                unit = "день"
-            elif cnt%10<=4:
-                unit = "дня"
-            else:
-                unit = "дней"
-
-        elif sec//hourSec>0:
-            cnt=sec//hourSec
-            unit="ч"
-
-        elif sec//minSec>0:
-            cnt=sec//minSec
-            unit="мин"
-
-        else:
-            cnt=sec
-            unit="сек"
-        return str(cnt) + " "+unit
-
 
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
@@ -552,34 +487,28 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     for taskKey, task in tasksToPoll.items():
         if not task.get('enabled',True):
             task['style'] = 'ign'
-            task['displayname'] = "{0} ({1}) : Задача отключена".format(taskKey, task['itemName'])
         else:
-            task['displayname'] = "{0} ({1}) : ".format(taskKey, task['itemName'])
-
-            if task.get('idleTime', None) is None:
+            if task.get('timeStamp', None) is None:
                 # if task is absent in previous poll - then not mark it as error
                 if taskKey in oldTasks.keys():
-                    # task['style'] = 'rem'
                     task['error'] = "задача не присылает данные"
                 else:
                     task['style'] = 'ign'
-                    task['displayname'] += "задача не присылает данные"
-
         # endif task enabled
     # endfor
 
     noDataForLongTimeError='задача не присылает данные длительное время'
-    # common task markup. iddle time
+    # common task markup. idle time
     for task in tasksToPoll.values():
         if task.get('style',None) is None:
-            if "idleTime" in task.keys():
-                idleTime = task['idleTime'].days * 86400 + task['idleTime'].seconds
+            if "timeStamp" in task.keys():
+                idleTime = datetime.utcnow() - task['timeStamp']
+                idleTime = idleTime.days * 86400 + idleTime.seconds
 
                 if abs(idleTime) > \
                         3 * max(task['period'], pollingPeriodSec):
                     if task.get('error',None) is None:
                         task['error'] = noDataForLongTimeError
-                task['displayname']+=(" "+secondsCountToHumanString(idleTime)+" назад")
     #end for
 
     #additional markup for heartbeat tasks. Data value, triggers
@@ -592,13 +521,11 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             # if no error or noDataForLongTimeError
             markHeartBeatTask(task)
 
-    # display error text in task caption
+    # display error style in task caption
     for taskKey, task in tasksToPoll.items():
         error=task.get('error',None)
         if (error is not None):
             task['style'] = 'rem'
-            task['displayname']+=(" ошибка : " + error)
-
 
 # create box for every agent (controlblock)
 # agents like {agent:[tasks]}
@@ -618,8 +545,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
                 curTasks = []
                 agents[boxName] = curTasks
 
-            taskData = {"id": serverName + '.' +
-                        taskKey, "name": task['displayname']}
+            taskData = {"id": serverName + '.' + taskKey}
 
             # filter parameters to write from tasksToPoll to pollResult
             taskData.update({key:task[key] 
@@ -649,20 +575,6 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
             "error": "Ошибки при опросе сервера " + serverName,
             "data": serverErrors,
             }]
-
-    # sort taskdata for every agent
-    def sortTasks(t):
-        taskStyle = t.get('style', None)
-        if taskStyle == 'rem':
-            res = '0'
-        elif taskStyle == "ign":
-            res = '1'
-        else:
-            res = '2'
-        return res+t['name']
-
-    for taskData in agents.values():
-        taskData.sort(key=sortTasks)
 
     # add agents with errors to pollresult
     resultWithErrors = [{

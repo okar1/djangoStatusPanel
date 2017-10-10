@@ -188,7 +188,6 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         try:
             headers = msg[1].headers
             taskKey=headers['key']
-            taskTimeStamp=headers['timestamp']
             taskUnit=headers['unit']
         except Exception as e:
             errStr = "Ошибка обработки сообщения: неверный заголовок."
@@ -218,11 +217,21 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 if errStr not in vErrors:
                     vErrors += [errStr]
                 continue
-           
+
+            try:
+                stringTimeStamp=headers['timestamp']
+                taskTimeStamp=datetime.strptime(stringTimeStamp, timeStampFormat)
+                tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
+            except Exception as e:
+                errStr = "Ошибка обработки сообщения: неверная метка времени."
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
+
             # not set value tag on empty string receive
             if msgBody!='':
                 tasksToPoll[taskKey]['value']=msgBody
-            tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
+
             tasksToPoll[taskKey]['unit']=taskUnit
             if "error" in headers.keys():
                 tasksToPoll[taskKey]['error']=headers['error']

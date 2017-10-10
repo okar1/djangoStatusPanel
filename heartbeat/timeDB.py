@@ -10,7 +10,6 @@
 #       'unit': '%',
 #       'error': 'задачанеприсылаетданные',
 #       'style': 'rem',
-#       'name': 'host1.1-1.someKey1(ЗагрузкаЦП): ошибка: задачанеприсылаетданные',
 #       'agentKey': 'host1',
 #       'enabled': True,
 #       'id': 'demo.host1.1-1.someKey1',
@@ -28,7 +27,6 @@
 #   'data': [{
 #       'unit': '%',
 #       'style': 'ign',
-#       'name': 'host1.1-1.someKey1(ЗагрузкаЦП): задачанеприсылаетданные',
 #       'agentKey': 'host1',
 #       'enabled': True,
 #       'id': 'demo.host1.1-1.someKey1',
@@ -45,7 +43,6 @@
 #   'data': [{
 #       'unit': '%',
 #       'value': 24.976688385009766,
-#       'name': 'host1.1-1.someKey1./intelcpu/0/load/0(ЗагрузкаЦП): 27секназадполученозначение24.976688385009766%',
 #       'timeStamp': '20171009065334',
 #       'agentKey': 'host1',
 #       'enabled': True,
@@ -68,7 +65,6 @@ import requests
 import time
 from datetime import datetime
 
-timeStampFormat="%Y%m%d%H%M%S"
 pointsPerRequest=2000
 
 # post pollResult to influxDB
@@ -154,7 +150,6 @@ def commitPollResult(timeDbConfig,pollResult):
         items=host['data']
         for item in items:
             if item.get('enabled',True):
-                
                 itemId="item:"+item['id']
                 itemTags={
                     'server':serverName,
@@ -163,18 +158,25 @@ def commitPollResult(timeDbConfig,pollResult):
                     'name':item.get('itemName',None),
                     'unit':item.get('unit',None)
                 }
-                itemValues={
-                    'value':item.get('value',None),
-                    'error':item.get('error',None)
-                }
+
+                error=item.get('error',None)
 
                 itemTimeStamp=item.get('timeStamp',None)
                 if itemTimeStamp is not None:
-                    itemTimeStamp = datetime.strptime(itemTimeStamp, timeStampFormat)
                     #timestamp() returns 10-digit float. InxluxDB requires 19-digit integer
                     itemTimeStamp=int(itemTimeStamp.timestamp()*1000000000)
 
+                if  (error is not None) or (itemTimeStamp is None):
+                    # in any strange situation - not publish values to DB.
+                    # publish errors only
+                    value=None
+                else:
+                    value=item.get('value',None)
+
+                itemValues={'value':value,'error':error}
                 sendMeasurement(itemId,itemTags,itemValues,itemTimeStamp)
         #endfor task
     #endfor host
     sendMeasurement(None,None,None,None,flushData=True)
+
+    raise Exception("превед")

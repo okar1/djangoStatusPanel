@@ -46,7 +46,7 @@ def threadPoll():
 
             # query DB. Get Db connection and list of tasks for monitoring
             # serverConfig -> (serverDb,tasksToPoll)
-            # tasksToPoll like {taskKey: {"agentKey":"aaa", "displayname:" "period":10} }}
+            # tasksToPoll like {taskKey: {"agentKey":"aaa", "itemName:" "period":10} }}
             serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors)
 
             # test all rabbitMQ configs and return first working to mqconf
@@ -84,12 +84,10 @@ def threadPoll():
             # use some parameters from oldTasks if it absent in taskstopoll
             subs.useOldParameters(tasksToPoll, oldTasks)            
 
-            # calc timestamp-->iddleTime for tasksToPoll
-            subs.calcIddleTime(tasksToPoll)
-
-            # add "style" field to tasksToPoll, modify "displayname"
+            # add "style" field to tasksToPoll
             # style == "rem" - error presents (red)
             # style == "ign" - error presents, but ignored (gray)
+            # style not present - no error
             subs.markTasks(
                 tasksToPoll,
                 oldTasks,

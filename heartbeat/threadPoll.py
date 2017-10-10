@@ -111,7 +111,7 @@ def threadPoll():
             # tasksToPoll,serverErrors -> serverPollResult
             # grouping tasks to boxes by agentKey, also create +1 box for server errors
             serverPollResult=subs.makePollResult(tasksToPoll, server.name, serverErrors)
-
+            
             # commit poll results of current server to timeDB (now it is influxDB)
             try:
                 timeDB.commitPollResult(serverConfig['timeDB'],serverPollResult)
@@ -137,7 +137,7 @@ def threadPoll():
         MqConsumers.cleanupConsumers()
 
         subs.pollResultSort(pollResult)
-        subs.pollResultCalcProgress(pollResult)
+        
         # poll completed, set pollResult accessible to others
         threadPoll.pollResult = pollResult
 

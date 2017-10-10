@@ -198,6 +198,7 @@ def formatErrors(errors, serverName, pollName):
     return [{
         'id': serverName + '.' + pollName + '.' + str(i),
         'name': pollName + ": " + text,
+        'error': text,
         'style': 'rem'}
         for i, text in enumerate(errors)]
 
@@ -667,18 +668,8 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
                       if key not in agentHasErrors]
     pollResult += resultNoErrors
 
-    return pollResult
-
-
-def pollResultSort(vPollResult):
-    # sort pollresults like servername & boxname, make boxes with errors first
-    # also look views.py/makeBoxCaption for box caption rule
-    vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['pollServer']+" "+v['name'])
-
-
-def pollResultCalcProgress(vPollResult):
-    # calc errors percent in vPollresult (visual errorcount)
-    for poll in vPollResult:
+    # calc errors percent in pollresult ("no error" tasks/"error" tasks condition in percent)
+    for poll in pollResult:
         if "error" in poll:
             count = len(poll['data'])
             if count > 0:
@@ -687,11 +678,21 @@ def pollResultCalcProgress(vPollResult):
                 # print (errCount)
                 poll['progress'] = int(100 * errCount / count)
                 if poll['pollServer'] == poll['name']:
+                    # box with common server errors
                     errHead = poll['pollServer']
                 else:
+                    # box with some host errors and tasks
                     errHead = poll['pollServer'] + " : " + poll['name']
                 poll['error'] = "{0} : Обнаружено ошибок: {1} из {2}".format(
                     errHead, errCount, count)
+
+    return pollResult
+
+
+def pollResultSort(vPollResult):
+    # sort pollresults like servername & boxname, make boxes with errors first
+    # also look views.py/makeBoxCaption for box caption rule
+    vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['pollServer']+" "+v['name'])
 
 
 def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqConf, opt, vServerErrors):

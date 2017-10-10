@@ -426,7 +426,7 @@ def _wmiOhmTable():
     c=wmi.WMI(namespace="OpenHardwareMonitor")
     wql="select * from Sensor"
     q=c.query(wql)
-    return {item.Identifier:item.Value for item in q} # +item.Name
+    return {((item.Identifier).replace('/','.')[1:]):item.Value for item in q} # +item.Name
 
 
 # identifier of openHardwareMonitor table value like "/intelcpu/0/temperature/0"

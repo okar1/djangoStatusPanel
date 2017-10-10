@@ -74,7 +74,7 @@ pointsPerRequest=2000
 # post pollResult to influxDB
 # timeDbConfig like [{'httpUrl': 'http://localhost:1086/write?db=rfc'}]
 def commitPollResult(timeDbConfig,pollResult):
-    
+    # print("**** ", pollResult)
     urlList=[item.get('httpUrl',None) for item in timeDbConfig if type(item)==dict]
     urlList=[u for u in urlList if u is not None and u!='']
 
@@ -98,7 +98,7 @@ def commitPollResult(timeDbConfig,pollResult):
     # collect some amount of lines and sends them in single request.
     # Requests are sending to every url in urllist
     def sendMeasurement(mId,tags,values,timestamp,flushData=False):
-        
+        # print("-----",mId,tags,values,timestamp,flushData)
         # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         if flushData:
             return
@@ -153,14 +153,14 @@ def commitPollResult(timeDbConfig,pollResult):
 
         items=host['data']
         for item in items:
-            if item.get('enabled',False):
+            if item.get('enabled',True):
                 
                 itemId="item:"+item['id']
                 itemTags={
                     'server':serverName,
                     'host':hostName,
-                    'hostkey':item['agentKey'],
-                    'name':item['itemName'],
+                    'hostkey':item.get('agentKey',None),
+                    'name':item.get('itemName',None),
                     'unit':item.get('unit',None)
                 }
                 itemValues={

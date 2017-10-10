@@ -5,7 +5,6 @@ import sys
 from .models import Servers, Options, TaskSets
 from . import threadPollSubs as subs
 from .threadMqConsumers import MqConsumers
-from . import timeDB
 
 isTestEnv=False
 
@@ -111,13 +110,7 @@ def threadPoll():
             serverPollResult=subs.makePollResult(tasksToPoll, server.name, serverErrors)
             
             # commit poll results of current server to timeDB (now it is influxDB)
-            try:
-                timeDB.commitPollResult(serverConfig['timeDB'],serverPollResult)
-            except Exception as e:
-                # on commit execption - add error message to serverErrors
-                serverErrors+=subs.formatErrors([str(e)], server.name, "commitResult")
-                # and rebuild pollResult with new serverErrors
-                serverPollResult=subs.makePollResult(tasksToPoll, server.name, serverErrors)                
+            subs.commitPollResult(tasksToPoll, server.name, serverErrors, serverConfig['timeDB'], serverPollResult)
 
             # add this server poll result to global poll result
             pollResult+=serverPollResult
@@ -134,6 +127,7 @@ def threadPoll():
         # (ex. db config was changed)
         MqConsumers.cleanupConsumers()
 
+        # sort boxex, make boxes with errors first. Not affects on tasks inside boxes
         subs.pollResultSort(pollResult)
         
         # poll completed, set pollResult accessible to others

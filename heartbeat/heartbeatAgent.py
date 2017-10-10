@@ -78,17 +78,19 @@ def getMqConnection(mqConf,vErrors,maxMsgTotal):
 
 
 def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
-    if not mqAmqpConnection:
-        return ['Соединение с RabbitMQ не установлено']
     
-    errors=[]
+    errors=set()
+
+    if not mqAmqpConnection:
+        errors.add('Соединение с RabbitMQ не установлено')
+        return errors
 
     channel = mqAmqpConnection.channel()
 
     try:
         channel.exchange_declare(exchange=sendToExchange, exchange_type='topic', durable=True)
     except Exception as e:
-        errors+= [str(e)]
+        errors.add(str(e))
         return errors
 
     for taskKey, task in tasksToPoll.items():
@@ -135,29 +137,31 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
 
 def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
 
+    errors=set()
+
     if not mqAmqpConnection:
-        return ['Соединение с RabbitMQ не установлено']
-    vErrors=[]
+        errors.add('Соединение с RabbitMQ не установлено')
+        return errors
 
     channel = mqAmqpConnection.channel()
 
     try:
         channel.queue_declare(queue=receiveFromQueue, durable=True,arguments={'x-message-ttl':1800000})
     except Exception as e:
-        vErrors+= [str(e)]
-        return vErrors
+        errors.add(str(e))
+        return errors
 
     try:
         channel.exchange_declare(exchange=receiveFromQueue, exchange_type='topic', durable=True)
     except Exception as e:
-        vErrors+= [str(e)]
-        return vErrors
+        errors.add(str(e))
+        return errors
 
     try:
         channel.queue_bind(queue=receiveFromQueue, exchange=receiveFromQueue, routing_key="#")
     except Exception as e:
-        vErrors+= [str(e)]
-        return vErrors
+        errors.add(str(e))
+        return errors
 
     mqMessages = []
     while True:
@@ -166,16 +170,12 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         try:
             getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
         except Exception as e:
-            errStr = str(e)
-            if errStr not in vErrors:
-                vErrors += [errStr]
+            errors.add(str(e))
             continue
         if getOk:
             mqMessage=[getOk]+mqMessage
             if mqMessage[1].content_type != 'application/json':
-                errStr = "Неверный тип данных " + mqMessage[0].content_type
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add("Неверный тип данных " + mqMessage[0].content_type)
                 continue
             mqMessages += [mqMessage]
         else:
@@ -190,9 +190,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             taskKey=headers['key']
             taskUnit=headers['unit']
         except Exception as e:
-            errStr = "Ошибка обработки сообщения: неверный заголовок."
-            if errStr not in vErrors:
-                vErrors += [errStr]
+            errors.add("Ошибка обработки сообщения: неверный заголовок.")
             continue
 
         # parse message payload
@@ -200,22 +198,16 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             msgBody = json.loads((msg[2]).decode('utf-8'))
             # msgBody['value']=777
         except Exception as e:
-            errStr = "Ошибка обработки сообщения: неверное содержимое."
-            if errStr not in vErrors:
-                vErrors += [errStr]
+            errors.add("Ошибка обработки сообщения: неверное содержимое.")
             continue
         
         if serverMode:            
             if headers.get('protocolversion',0) < agentProtocolVersion:
-                errStr = ('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
                 continue
 
             if taskKey not in tasksToPoll.keys():
-                errStr = ('Ошибка обработки сообщения: неверный ключ '+taskKey)
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add('Ошибка обработки сообщения: неверный ключ '+taskKey)
                 continue
 
             try:
@@ -223,9 +215,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 taskTimeStamp=datetime.strptime(stringTimeStamp, timeStampFormat)
                 tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
             except Exception as e:
-                errStr = "Ошибка обработки сообщения: неверная метка времени."
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add("Ошибка обработки сообщения: неверная метка времени.")
                 continue
 
             error=headers.get('error',None)
@@ -234,8 +224,8 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             if msgBody!='':
                 tasksToPoll[taskKey]['value']=msgBody
             else:
-                if error is None:            	
-                	error="значение не вычислено"
+                if error is None:
+                    error="значение не вычислено"
 
             tasksToPoll[taskKey]['unit']=taskUnit
             if error is not None:
@@ -245,7 +235,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                                   'unit':taskUnit,'config':msgBody['config'],
                                   'format':msgBody['format']}
     # endfor messages in current request
-    return vErrors
+    return errors
 
 
 def _snmpFormatValue(v):
@@ -784,12 +774,12 @@ def agentStart():
     # print(taskOhmTableValue("/intelcpu/0/temperature/2"))
     # print(taskOhmTableValue("/intelcpu/0/temperature/0"))
     print("agent start")
-    errors=[]
+    errors=set()
     tasksToPoll={}
     mqAmqpConnection= getMqConnection(mqConf,errors,maxMsgTotal)
-    errors+=receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue)
+    errors.update(receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue))
     processHeartBeatTasks(tasksToPoll)
-    sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange)
+    errors.update(sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange))
     if errors:
         for e in errors:
             print(e)

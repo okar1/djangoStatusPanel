@@ -69,7 +69,7 @@ pointsPerRequest=2000
 
 # post pollResult to influxDB
 # timeDbConfig like [{'httpUrl': 'http://localhost:1086/write?db=rfc'}]
-def commitPollResult(timeDbConfig,pollResult):
+def commitPollResult(timeDbConfig,pollResult,errors):
     # print("**** ", pollResult)
     urlList=[item.get('httpUrl',None) for item in timeDbConfig if type(item)==dict]
     urlList=[u for u in urlList if u is not None and u!='']
@@ -179,4 +179,4 @@ def commitPollResult(timeDbConfig,pollResult):
     #endfor host
     sendMeasurement(None,None,None,None,flushData=True)
 
-    raise Exception("превед")
+    errors.add("Преведтдт")

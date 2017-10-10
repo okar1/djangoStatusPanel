@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 from . import qosDb
 from .threadMqConsumers import MqConsumers
+from . import timeDB
+
 
 timeStampFormat="%Y%m%d%H%M%S"
 agentProtocolVersion=1
@@ -54,17 +56,19 @@ def sendRegisterMessage(server,routingKeys):
 
 
 def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
-    if not mqAmqpConnection:
-        return ['Соединение с RabbitMQ не установлено']
     
-    errors=[]
+    errors=set()
+
+    if not mqAmqpConnection:
+        errors.add('Соединение с RabbitMQ не установлено')
+        return errors
 
     channel = mqAmqpConnection.channel()
 
     try:
         channel.exchange_declare(exchange=sendToExchange, exchange_type='topic', durable=True)
     except Exception as e:
-        errors+= [str(e)]
+        errors.add(str(e))
         return errors
 
     for taskKey, task in tasksToPoll.items():
@@ -111,29 +115,31 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
 
 def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
 
+    errors=set()
+
     if not mqAmqpConnection:
-        return ['Соединение с RabbitMQ не установлено']
-    vErrors=[]
+        errors.add('Соединение с RabbitMQ не установлено')
+        return errors
 
     channel = mqAmqpConnection.channel()
 
     try:
         channel.queue_declare(queue=receiveFromQueue, durable=True,arguments={'x-message-ttl':1800000})
     except Exception as e:
-        vErrors+= [str(e)]
-        return vErrors
+        errors.add(str(e))
+        return errors
 
     try:
         channel.exchange_declare(exchange=receiveFromQueue, exchange_type='topic', durable=True)
     except Exception as e:
-        vErrors+= [str(e)]
-        return vErrors
+        errors.add(str(e))
+        return errors
 
     try:
         channel.queue_bind(queue=receiveFromQueue, exchange=receiveFromQueue, routing_key="#")
     except Exception as e:
-        vErrors+= [str(e)]
-        return vErrors
+        errors.add(str(e))
+        return errors
 
     mqMessages = []
     while True:
@@ -142,16 +148,12 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         try:
             getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
         except Exception as e:
-            errStr = str(e)
-            if errStr not in vErrors:
-                vErrors += [errStr]
+            errors.add(str(e))
             continue
         if getOk:
             mqMessage=[getOk]+mqMessage
             if mqMessage[1].content_type != 'application/json':
-                errStr = "Неверный тип данных " + mqMessage[0].content_type
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add("Неверный тип данных " + mqMessage[0].content_type)
                 continue
             mqMessages += [mqMessage]
         else:
@@ -166,9 +168,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             taskKey=headers['key']
             taskUnit=headers['unit']
         except Exception as e:
-            errStr = "Ошибка обработки сообщения: неверный заголовок."
-            if errStr not in vErrors:
-                vErrors += [errStr]
+            errors.add("Ошибка обработки сообщения: неверный заголовок.")
             continue
 
         # parse message payload
@@ -176,22 +176,16 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             msgBody = json.loads((msg[2]).decode('utf-8'))
             # msgBody['value']=777
         except Exception as e:
-            errStr = "Ошибка обработки сообщения: неверное содержимое."
-            if errStr not in vErrors:
-                vErrors += [errStr]
+            errors.add("Ошибка обработки сообщения: неверное содержимое.")
             continue
         
         if serverMode:            
             if headers.get('protocolversion',0) < agentProtocolVersion:
-                errStr = ('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
                 continue
 
             if taskKey not in tasksToPoll.keys():
-                errStr = ('Ошибка обработки сообщения: неверный ключ '+taskKey)
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add('Ошибка обработки сообщения: неверный ключ '+taskKey)
                 continue
 
             try:
@@ -199,9 +193,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 taskTimeStamp=datetime.strptime(stringTimeStamp, timeStampFormat)
                 tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
             except Exception as e:
-                errStr = "Ошибка обработки сообщения: неверная метка времени."
-                if errStr not in vErrors:
-                    vErrors += [errStr]
+                errors.add("Ошибка обработки сообщения: неверная метка времени.")
                 continue
 
             error=headers.get('error',None)
@@ -221,7 +213,8 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                                   'unit':taskUnit,'config':msgBody['config'],
                                   'format':msgBody['format']}
     # endfor messages in current request
-    return vErrors
+    return errors
+
 
 def formatErrors(errors, serverName, pollName):
     return [{
@@ -239,7 +232,7 @@ def formatErrors(errors, serverName, pollName):
 def pollDb(dbConfig, serverName, vServerErrors):
     # poll database
     pollName = "Database"
-    errors = []
+    errors = set()
     dbConnections = []
 
     # check all db in dbconf
@@ -251,7 +244,7 @@ def pollDb(dbConfig, serverName, vServerErrors):
                 continue
 
         except Exception as e:
-            errors += [str(e)]
+            errors.add(str(e))
             continue
         else:
             dbConnections += [curConnection]
@@ -270,7 +263,7 @@ def pollDb(dbConfig, serverName, vServerErrors):
         if e is None:
             tasksToPoll = tmp
         else:
-            errors += [e]
+            errors.add(e)
     # endif
     vServerErrors += formatErrors(errors, serverName, pollName)
     tasksToPoll = {} if tasksToPoll is None else tasksToPoll
@@ -281,7 +274,7 @@ def pollDb(dbConfig, serverName, vServerErrors):
 # mqConfig=[mqConf] -> mqConf (select first working mqconf)
 def getMqConf(mqConfig,serverName,vServerErrors):
     pollName = "CheckRabbitMq"
-    errors = []
+    errors = set()
 
     # mqAmqpConnection if first working mq was found and res is corresponding mqConf
     res=None
@@ -289,7 +282,7 @@ def getMqConf(mqConfig,serverName,vServerErrors):
         try:
             con = pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
         except Exception as e:
-            errors += [str(e)]
+            errors.add(str(e))
         else:
             if res is None:
                 # use first working connection in later tasks
@@ -631,7 +624,7 @@ def pollResultSort(vPollResult):
 def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqConf, opt, vServerErrors):
     # dublicate errors "no task data" to qos server gui
     pollName = "QosGuiAlarm"
-    errors = []
+    errors = set()
 
     # add alarmPublishStatus from prev poll if absent
     for taskKey, task in tasksToPoll.items():
@@ -721,6 +714,22 @@ def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqConf, opt, vServe
         con.close()
         #endif e is none
     else:
-        errors += [e]
+        errors.add(e)
 
     vServerErrors += formatErrors(errors, serverName, pollName)
+
+# commit pollResult in external time database
+# pollResult can can be changed in case of registartion error during commit
+def commitPollResult(tasksToPoll, serverName, vServerErrors, timeDbConfig,vPollResult):
+    pollName = "commitResult"
+    errors=set()
+    timeDB.commitPollResult(timeDbConfig,vPollResult,errors)
+
+    if errors:
+        # on commit execption - add error message to serverErrors
+        vServerErrors+=formatErrors(errors, serverName, pollName)
+        # now vPollResult = [], but object reference is the same
+        vPollResult*=0 
+        # rebuild pollResult again with new serverErrors
+        # use += instead of = to keep object reference
+        vPollResult+=makePollResult(tasksToPoll, serverName, vServerErrors)

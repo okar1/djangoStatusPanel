@@ -7,6 +7,7 @@ from . import qosDb
 from .threadMqConsumers import MqConsumers
 
 timeStampFormat="%Y%m%d%H%M%S"
+agentProtocolVersion=1
 
 # send message "ServerStarted" to "qos.service" queue
 # (no exception handling)
@@ -67,6 +68,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
         return errors
 
     for taskKey, task in tasksToPoll.items():
+        
         msgRoutingKey=task['agentKey']        
         if serverMode:
             # process only heartbeat tasks
@@ -86,7 +88,8 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
+                    'protocolversion':agentProtocolVersion}
 
         if "error" in task.keys():
             msgHeaders['error']=task['error']
@@ -139,14 +142,17 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         try:
             getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
         except Exception as e:
-            vErrors += [str(e)]
-            return vErrors
-
+            errStr = str(e)
+            if errStr not in vErrors:
+                vErrors += [errStr]
+            continue
         if getOk:
             mqMessage=[getOk]+mqMessage
             if mqMessage[1].content_type != 'application/json':
-                vErrors += ["Неверный тип данных " + mqMessage[0].content_type]
-                return vErrors
+                errStr = "Неверный тип данных " + mqMessage[0].content_type
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
             mqMessages += [mqMessage]
         else:
             break
@@ -171,13 +177,23 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             msgBody = json.loads((msg[2]).decode('utf-8'))
             # msgBody['value']=777
         except Exception as e:
-            vErrors += ['Ошибка обработки сообщения: неверное содержимое.']
-            return vErrors
+            errStr = "Ошибка обработки сообщения: неверное содержимое."
+            if errStr not in vErrors:
+                vErrors += [errStr]
+            continue
         
         if serverMode:            
+            if headers.get('protocolversion',0) < agentProtocolVersion:
+                errStr = ('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
+
             if taskKey not in tasksToPoll.keys():
-                vErrors += ['Ошибка обработки сообщения: неверный ключ '+taskKey]
-                return vErrors
+                errStr = ('Ошибка обработки сообщения: неверный ключ '+taskKey)
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
            
             # not set value tag on empty string receive
             if msgBody!='':

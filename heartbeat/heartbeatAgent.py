@@ -38,6 +38,7 @@ sendToExchange='heartbeatAgentReply'
 maxMsgTotal=50000
 amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
+agentProtocolVersion=1
 
 presets={
     "smLsiRaid":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.100.1.11", "indexcol":7, "datacol":27},
@@ -45,10 +46,10 @@ presets={
     "smPowerStatus":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.2.1.1.1","indexcol":2, "datacol":4, "include":["PS.*Status"]},
     "smTemperature":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.2.1.1.1", "indexcol":2, "datacol":4, "include":[".*Temp.*"]},
     "smFan":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.2.1.1.1", "indexcol":2, "datacol":4, "include":["FAN.*",".*Fan.*"]},
-    "ohwHddUsed":{"item":"ohwtable", "include":["/hdd.*/load/.*"]},
-    "ohwRamUsed":{"item":"ohwtable", "include":["/ram/load"]},
-    "ohwCpuTemperature":{"item":"ohwtable", "include":["cpu/.*/temperature/0"]},
-    "ohwCpuLoad":{"item":"ohwtable", "include":["cpu/.*/load/0"]},
+    "ohwHddUsed":{"item":"ohwtable", "include":["\.hdd.*\.load\..*"]},
+    "ohwRamUsed":{"item":"ohwtable", "include":["\.ram\.load"]},
+    "ohwCpuTemperature":{"item":"ohwtable", "include":["cpu\..*\.temperature\.0"]},
+    "ohwCpuLoad":{"item":"ohwtable", "include":["cpu\..*\.load\.0"]},
 }
 
 # mqconfig --> (msgTotal, mqConnection)
@@ -111,7 +112,8 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
 
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit']}
+        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
+                    'protocolversion':agentProtocolVersion}
 
         if "error" in task.keys():
             msgHeaders['error']=task['error']
@@ -164,14 +166,17 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         try:
             getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
         except Exception as e:
-            vErrors += [str(e)]
-            return vErrors
-
+            errStr = str(e)
+            if errStr not in vErrors:
+                vErrors += [errStr]
+            continue
         if getOk:
             mqMessage=[getOk]+mqMessage
             if mqMessage[1].content_type != 'application/json':
-                vErrors += ["Неверный тип данных " + mqMessage[0].content_type]
-                return vErrors
+                errStr = "Неверный тип данных " + mqMessage[0].content_type
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
             mqMessages += [mqMessage]
         else:
             break
@@ -196,13 +201,23 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             msgBody = json.loads((msg[2]).decode('utf-8'))
             # msgBody['value']=777
         except Exception as e:
-            vErrors += ['Ошибка обработки сообщения: неверное содержимое.']
-            return vErrors
+            errStr = "Ошибка обработки сообщения: неверное содержимое."
+            if errStr not in vErrors:
+                vErrors += [errStr]
+            continue
         
         if serverMode:            
+            if headers.get('protocolversion',0) < agentProtocolVersion:
+                errStr = ('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
+
             if taskKey not in tasksToPoll.keys():
-                vErrors += ['Ошибка обработки сообщения: неверный ключ '+taskKey]
-                return vErrors
+                errStr = ('Ошибка обработки сообщения: неверный ключ '+taskKey)
+                if errStr not in vErrors:
+                    vErrors += [errStr]
+                continue
            
             # not set value tag on empty string receive
             if msgBody!='':

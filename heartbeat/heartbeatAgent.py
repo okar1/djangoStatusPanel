@@ -228,13 +228,18 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                     vErrors += [errStr]
                 continue
 
+            error=headers.get('error',None)
+
             # not set value tag on empty string receive
             if msgBody!='':
                 tasksToPoll[taskKey]['value']=msgBody
+            else:
+                if error is None:            	
+                	error="значение не вычислено"
 
             tasksToPoll[taskKey]['unit']=taskUnit
-            if "error" in headers.keys():
-                tasksToPoll[taskKey]['error']=headers['error']
+            if error is not None:
+                tasksToPoll[taskKey]['error']=error
         else:
             tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
                                   'unit':taskUnit,'config':msgBody['config'],

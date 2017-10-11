@@ -46,8 +46,8 @@ presets={
     "smPowerStatus":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.2.1.1.1","indexcol":2, "datacol":4, "include":["PS.*Status"]},
     "smTemperature":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.2.1.1.1", "indexcol":2, "datacol":4, "include":[".*Temp.*"]},
     "smFan":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.2.1.1.1", "indexcol":2, "datacol":4, "include":["FAN.*",".*Fan.*"]},
-    "ohwHddUsed":{"item":"ohwtable", "include":["\.hdd.*\.load\..*"]},
-    "ohwRamUsed":{"item":"ohwtable", "include":["\.ram\.load"]},
+    "ohwHddUsed":{"item":"ohwtable", "include":["hdd.*\.load\."]},
+    "ohwRamUsed":{"item":"ohwtable", "include":["ram\.load"]},
     "ohwCpuTemperature":{"item":"ohwtable", "include":["cpu\..*\.temperature\.0"]},
     "ohwCpuLoad":{"item":"ohwtable", "include":["cpu\..*\.load\.0"]},
 }

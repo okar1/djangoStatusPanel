@@ -21,6 +21,9 @@ class MainViewForm(BoxForm):
 class MainView(BoxFormView):
     form_class = MainViewForm
     buttons = []
+    #static
+    tasks={}
+    timeStamp=0
 
     def getGroups(self):
         return list(ServerGroups.objects.all().order_by('name').values('id', 'name'))
@@ -37,6 +40,7 @@ class MainView(BoxFormView):
     # 2) if there is 1 server in this group - don't add servername to caption
     # 3) if caption length too long - then truncate it
     def getBoxesForGroup(self, groupID):
+
         def makeBoxCaption(key,value,serverName,addServerName):
             if key=="name":
                 if addServerName and serverName!=value:
@@ -77,6 +81,15 @@ class MainView(BoxFormView):
         return res
 
     def getRecordsForBox(self, boxID):
+        if self.__class__.timeStamp < threadPoll.pollTimeStamp or not self.__class__.tasks:
+            # print ('update tasks view data')
+            self.__class__.timeStamp = threadPoll.pollTimeStamp
+            self.updateTasks()
+        # print(boxID)
+        return self.__class__.tasks.get(boxID,[])
+
+    # tasks like {boxid:{[task data]}}
+    def updateTasks(self):
         def secondsCountToHumanString(sec):
             weekSec=604800
             daySec=86400
@@ -182,17 +195,15 @@ class MainView(BoxFormView):
             return name
         #end sub
 
-        # print(boxID)
-        # print(threadPoll.pollResult)
-        for item in threadPoll.pollResult:
-            if item['id'] == boxID:
-                res=[]
-                data = item['data']
-                for task in data:
-                    viewTask=task.copy()
-                    viewTask['name']=getNameForTask(task)
-                    viewTask.pop('timeStamp',None)
-                    res+=[viewTask]
-                res.sort(key=sortTasks)
-                return res
-        return []
+        tasks={}
+        for box in threadPoll.pollResult:
+            boxTasks=[]
+            for task in box['data']:
+                viewTask=task.copy()
+                viewTask['name']=getNameForTask(task)
+                viewTask.pop('timeStamp',None)
+                boxTasks+=[viewTask]
+            boxTasks.sort(key=sortTasks)
+            tasks[box['id']]=boxTasks
+        self.__class__.tasks=tasks
+    #end sub

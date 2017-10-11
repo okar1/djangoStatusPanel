@@ -90,7 +90,7 @@ class Servers(models.Model):
         with fieldTemplate.timeDB as timeDB:
             timeDB.httpUrl.fieldClass = forms.CharField
             timeDB.httpUrl.fieldOptions = dict(
-                label="Url для сохранения результатов", initial="", help_text="например http://localhost:1086/write?db=имяБД", required=False)
+                label="Url для сохранения результатов", initial="", help_text="например http://localhost:8086/write?db=имяБД", required=False)
 
         return fieldTemplate
 

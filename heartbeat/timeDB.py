@@ -62,8 +62,7 @@
 #   string "time" cannot be a field key or tag key
 
 import requests
-import time
-from datetime import datetime
+import calendar
 
 pointsPerRequest=2000
 
@@ -73,7 +72,7 @@ def commitPollResult(timeDbConfig,pollResult,errors):
     # print("**** ", pollResult)
     urlList=[item.get('httpUrl',None) for item in timeDbConfig if type(item)==dict]
     urlList=[u for u in urlList if u is not None and u!='']
-
+    reqData=[]
     if not urlList:
         return    
 
@@ -94,10 +93,10 @@ def commitPollResult(timeDbConfig,pollResult,errors):
     # collect some amount of lines and sends them in single request.
     # Requests are sending to every url in urllist
     def sendMeasurement(mId,tags,values,timestamp,flushData=False):
+
         # print("-----",mId,tags,values,timestamp,flushData)
-        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        if flushData:
-            return
+        nonlocal reqData
+
         if not flushData:
             mId=doScreening(mId,[","," "])
             tags={k:doScreening(v,[","," ","="]) for k,v in tags.items()}
@@ -119,18 +118,23 @@ def commitPollResult(timeDbConfig,pollResult,errors):
                         ('"' if type(v)==str else '') 
                         for k,v in values.items()]) + \
                     ((" "+str(timestamp)) if timestamp is not None else '')
-                print(curLine)
-        else:
-            curPoints=0
-            body=""    
+                # print(timestamp)
+                # print(curLine)
+                reqData+=[curLine]
+        #end if
 
-        
-
-
-        # r=requests.post(url,req.encode("UTF-8"))
-        # print(r.status_code)
-        # print(r.text)
-
+        if (len(reqData)>=pointsPerRequest) or flushData:
+            reqBody=('\n'.join(reqData)).encode("UTF-8")
+            reqData=[]
+            for url in urlList:
+                try:
+                    r=requests.post(url,reqBody)
+                except Exception as e:
+                    errors.add(str(e))
+                else:
+                    if r.status_code!=204:
+                        errors.add(str(r.status_code)+" "+r.text )
+        #end if 
     # end function
 
     for host in pollResult:
@@ -163,8 +167,11 @@ def commitPollResult(timeDbConfig,pollResult,errors):
 
                 itemTimeStamp=item.get('timeStamp',None)
                 if itemTimeStamp is not None:
+                    # convert from UTC datetime to UTC timestamp
+                    itemTimeStamp=calendar.timegm(itemTimeStamp.timetuple())
                     #timestamp() returns 10-digit float. InxluxDB requires 19-digit integer
-                    itemTimeStamp=int(itemTimeStamp.timestamp()*1000000000)
+                    itemTimeStamp=int(itemTimeStamp*1000000000)
+                    # itemTimeStamp=int(itemTimeStamp.timestamp()*1000000000)
 
                 if  (error is not None) or (itemTimeStamp is None):
                     # in any strange situation - not publish values to DB.
@@ -179,4 +186,4 @@ def commitPollResult(timeDbConfig,pollResult,errors):
     #endfor host
     sendMeasurement(None,None,None,None,flushData=True)
 
-    errors.add("Преведтдт")
+    # errors.add("Преведтдт")

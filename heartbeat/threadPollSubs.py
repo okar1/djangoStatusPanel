@@ -229,7 +229,7 @@ def formatErrors(errors, serverName, pollName):
 
 # dbConfig -> (dbConnection,tasksToPoll)
 # get db connection for later use and query list of tasks from db
-def pollDb(dbConfig, serverName, vServerErrors):
+def pollDb(dbConfig, serverName, vServerErrors,oldTasks):
     # poll database
     pollName = "Database"
     errors = set()
@@ -266,7 +266,7 @@ def pollDb(dbConfig, serverName, vServerErrors):
             errors.add(e)
     # endif
     vServerErrors += formatErrors(errors, serverName, pollName)
-    tasksToPoll = {} if tasksToPoll is None else tasksToPoll
+    tasksToPoll = oldTasks if tasksToPoll is None else tasksToPoll
     return (dbConnection, tasksToPoll)
 
 
@@ -571,6 +571,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
             "name": serverName,
             "pollServer": serverName,
             "error": "Ошибки при опросе сервера " + serverName,
+            "servertask":True,
             "data": serverErrors,
             }]
 
@@ -618,7 +619,9 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
 def pollResultSort(vPollResult):
     # sort pollresults like servername & boxname, make boxes with errors first
     # also look views.py/makeBoxCaption for box caption rule
-    vPollResult.sort(key=lambda v: ("0" if "error" in v.keys() else "1") + v['pollServer']+" "+v['name'])
+    vPollResult.sort(key=lambda v: ("0" if v.get("servertask",False) else
+                                    "1" if "error" in v.keys() else
+                                    "2") + v['pollServer']+" "+v['name'])
 
 
 def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqConf, opt, vServerErrors):

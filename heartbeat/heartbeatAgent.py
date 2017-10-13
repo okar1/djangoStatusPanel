@@ -21,7 +21,9 @@ from pyasn1.type.univ import ObjectIdentifier
 
 import wmi
 import re
-
+import subprocess
+import sys
+import traceback
 # import binascii
 
 mqConf={
@@ -50,6 +52,14 @@ presets={
     "ohwRamUsed":{"item":"ohwtable", "include":["ram\.load"]},
     "ohwCpuTemperature":{"item":"ohwtable", "include":["cpu\..*\.temperature\.0"]},
     "ohwCpuLoad":{"item":"ohwtable", "include":["cpu\..*\.load\.0"]},
+    "windowsFirewallStatus":{"item":"shell", "command":"netsh Advfirewall show allprofiles", "utf8":True, "timeout":3,
+        "include":[r"""
+            (?sx)
+            .*?
+             (\w*?)\ Profile\ Settings: # key: Domain Private or Public
+            .*?
+            State\s*(\w*?)\r\n # value: ON or OFF
+        """]},
 }
 
 # mqconfig --> (msgTotal, mqConnection)
@@ -660,6 +670,82 @@ def checkParameters(param,pattern):
     return param
 
 
+# parses string with every regex in include. Return key:value dict.
+# See taskShellTableValue description for more details
+# no error handling
+def parseString(string,include):
+    assert type(string)==str
+    assert type(include)==list
+
+    res={}
+    counter=0
+
+    for pattern in include:
+        match=re.findall(pattern,string)
+        if match:
+            for item in match:
+                if type(item)==str:
+                    # got only value from regex. Auto generate the key
+                    res[str(counter)]=item
+                    counter+=1
+                elif type(item)==tuple:
+                    if len(item)==2:
+                        # got key and value from regex
+                        res[item[0]]=item[1]
+                    else:
+                        raise Exception("regex должен возвращать строго 1 или 2 группы. Проверьте настройки ПО.")
+                else:
+                    raise Exception("неизвестная ошибка regex")
+    return res
+
+
+# run shell command. Read stdout. Parse stdOut with every regex in include list
+# regex must return 2 or 1 groups:
+# 2 groups result is processed as taskkey: taskvalue
+# 1 group result is processed as taskvalue, taskkey will be generated automatically
+# If "unicode" flag is set - swich console encoding to UTF-8 before executing command.
+# else using current console encoding
+# (it is usefull with system commands on russian windows locale. All output messages became english)
+# timeout is optional time limit for running shell command in seconds
+def taskShellTableValue(command,include,utf8,timeout):
+    assert type(command)==str
+    assert type (include)==list
+    assert type(utf8)==bool
+
+    if not hasattr(taskShellTableValue,"commandDict"):
+        taskShellTableValue.commandDict={}
+        taskShellTableValue.utf8=False
+    commandDict=taskShellTableValue.commandDict
+
+    # warning! utf 8 flag is not task-safe!
+    # since one task will switch console to utf-8, all other tasks will get stdout in utf-8 too
+    if utf8 and (not taskShellTableValue.utf8):
+        # run this only once
+        subprocess.run(["cmd", "/C", "chcp" , "65001"])
+        taskShellTableValue.utf8=True
+
+    if command not in commandDict.keys():
+        if timeout is not None:
+            runResult=subprocess.run(command.split(" "),stderr=subprocess.PIPE,stdout=subprocess.PIPE,timeout=timeout)
+        else:
+            runResult=subprocess.run(command.split(" "),stderr=subprocess.PIPE,stdout=subprocess.PIPE)
+
+        if runResult.returncode!=0:
+            err=runResult.stderr
+            err=err.decode("UTF-8") if utf8 else err.decode("cp866")
+            raise Exception("Код "+str(runResult.returncode)+" "+err)
+
+        commandResult=runResult.stdout
+        commandResult=commandResult.decode("UTF-8") if utf8 else commandResult.decode("cp866")
+
+        # store command stdout for caching future requests
+        commandDict[command]=commandResult
+    else:
+        commandResult=commandDict[command]
+    #end if
+
+    return parseString(commandResult,include)
+
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
 # keys in every heartbeat task : 
 #   module - always == "heartbeat"
@@ -688,6 +774,8 @@ def processHeartBeatTasks(tasksToPoll):
 
                 if item is None:
                     task['error']="В настройках элемента данных не задано значение item"
+                elif item=="shell":
+                    task['error']="Непосредственный запуск модуля shell запрещен в целях безопасности"
                 else:
                     # task['value']={"key1":"value1","key2":"value2"}
                     # task['unit']="кг/ам"
@@ -731,9 +819,26 @@ def processHeartBeatTasks(tasksToPoll):
                                 "datacol":{     "type":int,
                                                 "mandatory":True},
                                 }))
+                        elif item=="shell":
+                            task['value']=taskShellTableValue(**checkParameters(taskConfig,{
+                                "command":{ "type":str,
+                                            "mandatory":True},
+                                "include":{ "type":list,
+                                            "mandatory":False,
+                                            "default":["(.*)"]},
+                                "utf8":{ "type":bool,
+                                            "mandatory":False,
+                                            "default":False},
+                                "timeout":{ "type":int,
+                                            "mandatory":False,
+                                            "default":None},
+
+                                }))
+
                         else:
                             raise Exception( "Неизвестный тип элемента данных: "+item)
                     except Exception as e:
+                        traceback.print_exc(file=sys.stdout)
                         task['error']=str(e)
 
 

@@ -220,12 +220,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
 
             error=headers.get('error',None)
 
-            # not set value tag on empty string receive
-            if msgBody!='':
-                tasksToPoll[taskKey]['value']=msgBody
-            else:
-                if error is None:
-                    error="значение не вычислено"
+            tasksToPoll[taskKey]['value']=msgBody
 
             tasksToPoll[taskKey]['unit']=taskUnit
             if error is not None:
@@ -485,6 +480,9 @@ def formatValue(v,format):
     # value is single and format is single
     def _do1value1format(v,format):
         
+        if v is None:
+            return None
+
         if type(format) is not dict:
            raise Exception("проверьте настройку обработки результата")
         
@@ -738,6 +736,7 @@ def processHeartBeatTasks(tasksToPoll):
                     except Exception as e:
                         task['error']=str(e)
 
+
                     # got a value, not got a error
                     if ('error' not in task.keys()) and ('value' in task.keys()):
 
@@ -755,11 +754,15 @@ def processHeartBeatTasks(tasksToPoll):
                         elif type(value)==dict:
                             # and for composite tasks - remove None results too
                             task['value']={k:v for k,v in value.items() if v is not None}
+                            # not return empty composite tasks. Return  none instead
+                            if not task['value']:
+                                task['value']=None
 
         task.pop('config',None)
         task.pop('format',None)
         print("")
-        print ("result:",task)
+        if taskKey not in task2remove:
+            print ("result:",task)
         #calc current timestamp after end of collecting results        
         nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
         task['timeStamp']=nowDateTime

@@ -198,12 +198,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
 
             error=headers.get('error',None)
 
-            # not set value tag on empty string receive
-            if msgBody!='':
-                tasksToPoll[taskKey]['value']=msgBody
-            else:
-                if error is None:
-                    error="значение не вычислено"
+            tasksToPoll[taskKey]['value']=msgBody
 
             tasksToPoll[taskKey]['unit']=taskUnit
             if error is not None:
@@ -266,7 +261,12 @@ def pollDb(dbConfig, serverName, vServerErrors,oldTasks):
             errors.add(e)
     # endif
     vServerErrors += formatErrors(errors, serverName, pollName)
-    tasksToPoll = oldTasks if tasksToPoll is None else tasksToPoll
+    
+    # if connection to qos db is lost - use last received from qos db tasks
+    # heartbeat tasks are excluded, because they are loaded from local db, not qos db. 
+    if tasksToPoll is None:
+        tasksToPoll = {k:v for k,v in oldTasks.items() if v.get("module","")!='heartbeat'}
+
     return (dbConnection, tasksToPoll)
 
 

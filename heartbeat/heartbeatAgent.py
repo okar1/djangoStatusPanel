@@ -60,6 +60,58 @@ presets={
             .*?
             State\s*(\w*?)\r\n # value: ON or OFF
         """]},
+    "windowsNetworkType":{"item":"shell", "command":"powershell -c Get-NetConnectionProfile", "utf8":True, "timeout":6,
+        "include":[r"""
+            (?sx)
+            InterfaceAlias\s*:\s*(\w*) # Network adapter name
+            .*?
+            NetworkCategory\s*:\s*(\w*) # Public Domain Private
+        """]},
+    
+    # sample ntpq -p output:
+    #      remote           refid      st t when poll reach   delay   offset  jitter
+    # ==============================================================================
+    #  *GPS_NMEA(6)     .GPS.            0 l    -   64    0    0.000    0.000   0.000
+    #  51.140.127.197  128.138.141.172  2 u   23   64    1   75.455  117.537   0.000
+    "ntpSyncAgoSec":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":3,
+        "include":[r"""
+            (?x)
+               ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key
+               \s*\S*                # refid field
+               \s*\S*                # st field
+               \s*\S*                # t field
+               \s*(\S*)              # when field: value
+               \s*\S*                # poll field
+               \s*\S*                # reach field
+               \s*\S*                # delay field
+               \s*\S*                # offset field
+               \s*\S*                # jitter field
+        """]},
+    "ntpSyncOffset":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":3,
+        "include":[r"""
+            (?x)
+               ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key
+               \s*\S*                # refid field
+               \s*\S*                # st field
+               \s*\S*                # t field
+               \s*\S*                # when field
+               \s*\S*                # poll field
+               \s*\S*                # reach field
+               \s*\S*                # delay field
+               \s*(\S*)              # offset field: value
+               \s*\S*                # jitter field
+        """]},
+    "intelRaid":{"item":"shell", "command":"c:\\monitoring\\rstcli64.exe -I -v", "utf8":True, "timeout":3,
+        "include":[r"""
+            (?sx)
+            --VOLUME\ INFORMATION-- #this string first
+            .*?
+            Name:\s*(\w*) # Name: <some spaces> Volume1
+            .*?
+            State:\s*(\w*) # State: <some spaces> Normal
+            .*?
+            --DISKS\ IN\ VOLUME # include it in search to find next volume asn skip disks
+        """]},
 }
 
 # mqconfig --> (msgTotal, mqConnection)
@@ -684,7 +736,7 @@ def parseString(string,include):
         match=re.findall(pattern,string)
         if match:
             for item in match:
-                if type(item)==str:
+                if type(item)==str and item!='':
                     # got only value from regex. Auto generate the key
                     res[str(counter)]=item
                     counter+=1
@@ -703,9 +755,8 @@ def parseString(string,include):
 # regex must return 2 or 1 groups:
 # 2 groups result is processed as taskkey: taskvalue
 # 1 group result is processed as taskvalue, taskkey will be generated automatically
-# If "unicode" flag is set - swich console encoding to UTF-8 before executing command.
-# else using current console encoding
-# (it is usefull with system commands on russian windows locale. All output messages became english)
+# If "utf8" flag is set - decode console stdout as cp65001 else cp866
+#   (it is usefull with system commands on russian windows locale. All output messages became english)
 # timeout is optional time limit for running shell command in seconds
 def taskShellTableValue(command,include,utf8,timeout):
     assert type(command)==str
@@ -714,29 +765,47 @@ def taskShellTableValue(command,include,utf8,timeout):
 
     if not hasattr(taskShellTableValue,"commandDict"):
         taskShellTableValue.commandDict={}
-        taskShellTableValue.utf8=False
     commandDict=taskShellTableValue.commandDict
 
-    # warning! utf 8 flag is not task-safe!
-    # since one task will switch console to utf-8, all other tasks will get stdout in utf-8 too
-    if utf8 and (not taskShellTableValue.utf8):
-        # run this only once
-        subprocess.run(["cmd", "/C", "chcp" , "65001"])
-        taskShellTableValue.utf8=True
+
 
     if command not in commandDict.keys():
-        if timeout is not None:
-            runResult=subprocess.run(command.split(" "),stderr=subprocess.PIPE,stdout=subprocess.PIPE,timeout=timeout)
+        
+        # when file name or path contain spaces - full path must be included in single or double quotes
+        # like "c:\long path\some program.exe" -param1 -param2  
+        quoteSymbol=False
+        if command[0]=='"' or command[0]=="'":
+            quoteSymbol=command[0]
+            # check closing quote
+            if command.find(quoteSymbol,1)==-1:
+                raise Exception("Если путь к программе содержит пробелы - используйте кавычки")
+            exeNamePath=command.split(quoteSymbol)[1]
+            paramString=command[len(exeNamePath)+2:] # 2 symbols for open and close quotes
+            commandList= [exeNamePath] + paramString.split(" ")
+            commandList=[v for v in commandList if v!=''] #remove empty spaces in case of -param1<space1><space2>-param2
         else:
-            runResult=subprocess.run(command.split(" "),stderr=subprocess.PIPE,stdout=subprocess.PIPE)
+            commandList=command.split(" ")
+
+        # for switching windows console stdout to unicode mode:
+        # 1) use shell=True (this param is no need elsewhere)
+        # 2) add key to windows registry:
+        #       regtool add /user/Console
+        #       regtool add /user/Console/%SystemRoot%_system32_cmd.exe
+        #       regtool set /user/Console/%SystemRoot%_system32_cmd.exe/CodePage 0xfde9
+        # 3) set var utf8=True for correct decoding
+        if timeout is not None:
+            runResult=subprocess.run(commandList,stderr=subprocess.PIPE,stdout=subprocess.PIPE,timeout=timeout,shell=True)
+        else:
+            runResult=subprocess.run(commandList,stderr=subprocess.PIPE,stdout=subprocess.PIPE,shell=True)
 
         if runResult.returncode!=0:
             err=runResult.stderr
-            err=err.decode("UTF-8") if utf8 else err.decode("cp866")
+            err=err.decode("cp65001") if utf8 else err.decode("cp866")
             raise Exception("Код "+str(runResult.returncode)+" "+err)
 
         commandResult=runResult.stdout
-        commandResult=commandResult.decode("UTF-8") if utf8 else commandResult.decode("cp866")
+        # print(commandResult)
+        commandResult=commandResult.decode("cp65001") if utf8 else commandResult.decode("cp866")
 
         # store command stdout for caching future requests
         commandDict[command]=commandResult
@@ -783,13 +852,19 @@ def processHeartBeatTasks(tasksToPoll):
                     preset=presets.get(item,None)
 
                     # apply preset to taskConfig. Old taskConfig parameters has priority
-                    # but only "item" parameter from preset has priority
+                    # but some special reset parameters
                     if preset is not None:
                         preset=preset.copy()
-                        item=preset['item']
+                        
+                        # remove items from taskConfig, that must be overriten by preset
+                        taskConfig.pop('item',None)
+                        if preset.get('item',None)=='shell':
+                            # for security reasons passing external shell commands is not allowed
+                            taskConfig.pop('command',None)
+                        
                         preset.update(taskConfig)
-                        preset['item']=item
                         taskConfig=preset
+                        item=taskConfig['item']
                         preset=None
 
                     try:
@@ -862,6 +937,7 @@ def processHeartBeatTasks(tasksToPoll):
                             # not return empty composite tasks. Return  none instead
                             if not task['value']:
                                 task['value']=None
+                                task2remove.add(taskKey)
 
         task.pop('config',None)
         task.pop('format',None)

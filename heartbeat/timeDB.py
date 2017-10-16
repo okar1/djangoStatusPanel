@@ -101,11 +101,11 @@ def commitPollResult(timeDbConfig,pollResult,errors):
             mId=doScreening(mId,[","," "])
             tags={k:doScreening(v,[","," ","="]) for k,v in tags.items()}
             # filter for None and empty strings
-            tags={k:v for k,v in tags.items() if v }
+            tags={k:v for k,v in tags.items() if v is not None and v!=''}
 
             values={k:doScreening(v,['"']) for k,v in values.items()}
             # filter for None and empty strings
-            values={k:v for k,v in values.items() if v }
+            values={k:v for k,v in values.items() if v is not None and v!=''}
 
             # if all values are empty - not send anything
             if (mId is not None) and values:
@@ -181,6 +181,10 @@ def commitPollResult(timeDbConfig,pollResult,errors):
                     value=None
                 else:
                     value=item.get('value',None)
+
+                # allowed value types to write in db
+                if type(value) not in [int,float,bool]:
+                    value=None
 
                 itemValues={'value':value,'error':error}
                 sendMeasurement(itemId,itemTags,itemValues,itemTimeStamp)

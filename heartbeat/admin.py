@@ -3,6 +3,9 @@ from .models import Servers, Options, ServerGroups, Hosts, Items,TaskSets, Trigg
 from .threadPollSubs import sendRegisterMessage
 
 from django.contrib import admin
+from django import forms
+from django.forms.models import ModelMultipleChoiceField
+
 import json
 
 # TODO now host passwords are transfered to admin form unencrypted
@@ -178,9 +181,67 @@ def hostRegister(modeladmin, request, qset):
         print("sent registration messages error: ",str(e))
 
 
+
+
+# custom form for hosts and items
+# adds ability to select linked taskSets 
+class TaskSetSelectorForm(forms.ModelForm):
+    taskSets = ModelMultipleChoiceField(label="Связанные задачи",required=False,queryset=TaskSets.objects.all())
+    # Overriding __init__ here allows us to provide initial
+    # data for 'toppings' field
+    def __init__(self, *args, **kwargs):
+        # Only in case we build the form from an instance
+        # (otherwise, 'toppings' list should be empty)
+        if kwargs.get('instance'):
+            # We get the 'initial' keyword argument or initialize it
+            # as a dict if it didn't exist.                
+            initial = kwargs.setdefault('initial', {})
+            # The widget for a ModelMultipleChoiceField expects
+            # a list of primary key for the selected data.
+            initial['taskSets'] = [t.pk for t in kwargs['instance'].tasksets_set.all()]
+        forms.ModelForm.__init__(self, *args, **kwargs)
+
+    # Overriding save allows us to process the value of 'toppings' field    
+    def save(self, commit=True):
+        # Get the unsave Pizza instance
+        instance = forms.ModelForm.save(self, False)
+
+        # Prepare a 'save_m2m' method for the form,
+        old_save_m2m = self.save_m2m
+        def save_m2m():
+            old_save_m2m()
+            # This is where we actually link the pizza with toppings
+            instance.tasksets_set.clear()
+            for item in self.cleaned_data['taskSets']:
+                instance.tasksets_set.add(item)
+        self.save_m2m = save_m2m
+
+        # Do we need to save all changes now?
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
+# custom form for hosts
+# adds ability to select linked taskSets 
+class HostsForm(TaskSetSelectorForm):
+    class Meta:
+        model = Hosts
+        fields=('name','key','server','enabled','config','comment','taskSets',)
+
+
+# custom form for items
+# adds ability to select linked taskSets 
+class ItemsForm(TaskSetSelectorForm):
+    class Meta:
+        model = Items
+        fields=('name','key','enabled','unit','config','resultformatter','comment','taskSets',)
+
+
 @admin.register(Hosts)
 class HostsAdmin(admin.ModelAdmin):
-    # form=RulesForm
+    form=HostsForm
     list_filter = ('server__name',)
     list_display = ['name', 'key', 'server', 'enabled', 'id', 'comment']
     # fields = ['name', 'value']
@@ -189,7 +250,7 @@ class HostsAdmin(admin.ModelAdmin):
 
 @admin.register(Items)
 class ItemsAdmin(admin.ModelAdmin):
-    # form=RulesForm
+    form=ItemsForm
     list_display = ['name', 'key', 'enabled', 'unit', 'id', 'comment']
     # fields = ['name', 'value']
 

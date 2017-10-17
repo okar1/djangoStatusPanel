@@ -99,13 +99,21 @@ def commitPollResult(timeDbConfig,pollResult,errors):
 
         if not flushData:
             mId=doScreening(mId,[","," "])
-            tags={k:doScreening(v,[","," ","="]) for k,v in tags.items()}
-            # filter for None and empty strings
-            tags={k:v for k,v in tags.items() if v is not None and v!=''}
 
             values={k:doScreening(v,['"']) for k,v in values.items()}
             # filter for None and empty strings
             values={k:v for k,v in values.items() if v is not None and v!=''}
+
+
+            tags={k:doScreening(v,[","," ","="]) for k,v in tags.items()}
+            # filter for None and empty strings
+            tags={k:v for k,v in tags.items() if v is not None and v!=''}
+
+            #add special boolean tags: haserror and hasvalue
+            tags.update({
+                'haserror':str(int("error" in values.keys())),
+                'hasvalue':str(int("value" in values.keys())),
+                })
 
             # if all values are empty - not send anything
             if (mId is not None) and values:

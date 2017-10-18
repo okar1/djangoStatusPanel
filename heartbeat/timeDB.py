@@ -152,14 +152,19 @@ def commitPollResult(timeDbConfig,pollResult,errors):
         hostId="host:"+host['id']
         hostName = host['name']
         serverName=host['pollServer']
+        # errors count at host
+        errorCount = sum([record.get("style", None) == "rem" for record in host['data']])
         hostTags={
             'name':hostName,
             'server':serverName,
             }
         hostValues={
-            'errorpercent' : host.get('progress',None)
+            'errorcount' : errorCount
         }
-        sendMeasurement(hostId,hostTags,hostValues,None)
+        
+        # send error information only if errors presents
+        if errorCount>0:
+            sendMeasurement(hostId,hostTags,hostValues,None)
 
         items=host['data']
         for item in items:
@@ -193,6 +198,10 @@ def commitPollResult(timeDbConfig,pollResult,errors):
                 # allowed value types to write in db
                 if type(value) not in [int,float,bool]:
                     value=None
+
+                #convert bool to int, because grafana not support displaying bools
+                if type(value)==bool:
+                    value=int(value)
 
                 itemValues={'value':value,'error':error}
                 sendMeasurement(itemId,itemTags,itemValues,itemTimeStamp)

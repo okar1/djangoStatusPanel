@@ -170,12 +170,19 @@ def commitPollResult(timeDbConfig,pollResult,errors):
         for item in items:
             if item.get('enabled',True):
                 itemId="item:"+item['id']
+                
+                # measure suffix for combo tasks from itemID
+                # itemID like item:server.host.unuque_key.param_name.suffix
+                # ex. item:localhost.localhost.2-6.hddUsed.hdd.1.load.0 --> hdd.1.load.0
+                msuffix='.'.join(itemId.split('.')[4:])
+
                 itemTags={
                     'server':serverName,
                     'host':hostName,
                     'hostkey':item.get('agentKey',None),
                     'name':item.get('itemName',None),
-                    'unit':item.get('unit',None)
+                    'msuffix':msuffix
+                    # 'unit':item.get('unit',None)
                 }
 
                 error=item.get('error',None)

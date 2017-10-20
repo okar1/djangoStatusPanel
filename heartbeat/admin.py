@@ -228,7 +228,7 @@ class TaskSetSelectorForm(forms.ModelForm):
 class HostsForm(TaskSetSelectorForm):
     class Meta:
         model = Hosts
-        fields=('name','key','server','enabled','config','comment','taskSets',)
+        fields=('name','key','server','enabled','config','alarms','comment','taskSets',)
 
 
 # custom form for items
@@ -236,7 +236,7 @@ class HostsForm(TaskSetSelectorForm):
 class ItemsForm(TaskSetSelectorForm):
     class Meta:
         model = Items
-        fields=('name','key','enabled','unit','config','resultformatter','comment','taskSets',)
+        fields=('name','key','enabled','unit','config','resultformatter','alarms','comment','taskSets',)
 
 
 @admin.register(Hosts)

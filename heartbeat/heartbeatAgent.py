@@ -941,6 +941,7 @@ def processHeartBeatTasks(tasksToPoll):
 
         task.pop('config',None)
         task.pop('format',None)
+        task.pop('alarms',None)
         print("")
         if taskKey not in task2remove:
             print ("result:",task)

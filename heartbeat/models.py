@@ -169,7 +169,16 @@ class Hosts(models.Model):
     key = models.CharField("Ключ узла (routing key)", max_length=255, blank=False, null=False, editable=True, default="")
     server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True)
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
-    config = models.TextField(null=False, blank=True, default="")
+    config = models.TextField(null=False, blank=True, default="",help_text="Настройки узла. Дополняют настройки элементов данных, работающих на этом узле")
+    alarms = models.TextField("Оповестить если", blank=False, null=False, default="",
+        help_text="Если одно из условий выполняется заданное время, пользователь получит оповещение.</br>"+
+                    "Время принимается кратным времени опроса (по умолчанию 60 сек 120 сек 180 сек итд)</br>"+
+                    "Если настройки узла заданы, они заменя????????</br>"+ вкп
+                    "Примеры:</br>"+
+                    ">=20</br>"+
+                    ">10 120s</br>"+
+                    "in 10..20 160s</br>"+
+                    "out 40..50")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
@@ -197,7 +206,15 @@ class Items(models.Model):
     key = models.CharField("Ключ параметра (parameter key)", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
     unit = models.CharField("Единица измерения", max_length=255, blank=True, null=False, editable=True, default="")
-    config = models.TextField(blank=False, null=False, default="")
+    config = models.TextField(blank=False, null=False, default="",help_text="Настройки элемента данных в формате JSON. Определяют тип элемента и способ его работы")
+    alarms = models.TextField("Оповестить если", blank=False, null=False, default="",
+        help_text="Если одно из условий выполняется заданное время, пользователь получит оповещение.</br>"+
+                    "Время принимается кратным времени опроса (по умолчанию 60 сек 120 сек 180 сек итд)</br>"+
+                    "Примеры:</br>"+
+                    ">=20</br>"+
+                    ">10 120s</br>"+
+                    "in 10..20 160s</br>"+
+                    "out 40..50")
     resultformatter = models.ForeignKey(ResultFormatters,verbose_name="Обработчик результата", blank=True, null=True)
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     
@@ -285,6 +302,7 @@ class TaskSets(models.Model):
             else:                
                 try:
                     taskConfig=json.loads(sItemConfig.replace('\\','\\\\'))
+                    assert type(taskConfig)==dict
                 except:
                     raise Exception("неправильная конфигурация элемента данных")
                 
@@ -292,6 +310,7 @@ class TaskSets(models.Model):
             if sHostConfig!="":
                 try:
                     hostConfig=json.loads(sHostConfig.replace('\\','\\\\'))
+                    assert type(hostConfig)==dict
                 except Exception as e:
                     raise Exception("неправильная конфигурация узла сети "+str(e))
 
@@ -305,9 +324,16 @@ class TaskSets(models.Model):
                 return formatStr
             else:
                 try:
-                    return json.loads(formatStr.replace('\\','\\\\'))
+                    res=json.loads(formatStr.replace('\\','\\\\'))
+                    assert type(res)==dict
+                    return res
                 except Exception as e:
                     raise Exception("проверьте настройку обработки результата "+str(e))
+
+        # todo parse alarms (str or list of str ) -- > list of dict
+        def getTaskAlarms(alarms):
+            #todo alarms is string or list of strings
+            return alarms
 
         res={}
         for task in tasks:
@@ -330,6 +356,11 @@ class TaskSets(models.Model):
                 taskConfig={}
                 taskValue['error']=str(e)
             taskValue["config"]=taskConfig
+
+            # remove taskAlerts from taskConfig and set them as part of task
+            taskAlarms=taskConfig.pop('alarms',None)
+            if taskAlarms is not None:
+                taskValue['alarms']=getTaskAlarms(taskAlarms)
 
             try:
                 taskFormat=getTaskFormat(task.format)

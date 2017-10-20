@@ -40,7 +40,7 @@ sendToExchange='heartbeatAgentReply'
 maxMsgTotal=50000
 amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
-agentProtocolVersion=1
+agentProtocolVersion=2
 
 presets={
     "smLsiRaid":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.100.1.11", "indexcol":7, "datacol":27},
@@ -169,13 +169,14 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             if task.get('error',False):
                 continue
             timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
-            msgBody={"config":task['config'],
-                     "format":task.get('format',None)
-                    }
+            
+            # filter fields for sending server --> agent
+            msgBody={k:v for k,v in task.items() if k in ['config','format','alarms']}
         else:
-            msgBody=task.get('value',"")
             timeStamp=task['timeStamp']
-
+            # filter fields for sending agent --> server
+            msgBody={k:v for k,v in task.items() if k in ['value','alarmresults']}
+            
         msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
                     'protocolversion':agentProtocolVersion}
 
@@ -258,7 +259,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         # parse message payload
         try:
             msgBody = json.loads((msg[2]).decode('utf-8'))
-            # msgBody['value']=777
+            assert type(msgBody)==dict
         except Exception as e:
             errors.add("Ошибка обработки сообщения: неверное содержимое.")
             continue
@@ -281,16 +282,16 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
                 continue
 
             error=headers.get('error',None)
-
-            tasksToPoll[taskKey]['value']=msgBody
-
+            
+            # filter fields when reseiving at server side
+            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmresults'] })
             tasksToPoll[taskKey]['unit']=taskUnit
             if error is not None:
                 tasksToPoll[taskKey]['error']=error
         else:
-            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,
-                                  'unit':taskUnit,'config':msgBody['config'],
-                                  'format':msgBody['format']}
+            # filter fields when reseiving at agent side
+            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,'unit':taskUnit}
+            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config','format','alarms']  })
     # endfor messages in current request
     return errors
 
@@ -915,7 +916,6 @@ def processHeartBeatTasks(tasksToPoll):
                     except Exception as e:
                         traceback.print_exc(file=sys.stdout)
                         task['error']=str(e)
-
 
                     # got a value, not got a error
                     if ('error' not in task.keys()) and ('value' in task.keys()):

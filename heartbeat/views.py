@@ -165,22 +165,22 @@ class MainView(BoxFormView):
             if task.get('servertask',False):
                 name=taskKey+" : "
             else:
-                name= "{0} ({1}) : ".format(taskKey, task['itemName'])
+                name= "{0} ({1})".format(taskKey, task['itemName'])
 
             if not task.get('enabled',True):
-                name += "Задача отключена"
+                name += " : Задача отключена"
             else:
                 if task.get('timeStamp', None) is None:
                     # when error - this tex already present in error message
                     # so no need to dublicate it
                     if task.get('style',None)!='rem':
-                        name += "задача не присылает данные"
+                        name += " : задача не присылает данные"
                 else:
                     idleTime = datetime.utcnow() - task['timeStamp']
                     idleTime = idleTime.days * 86400 + idleTime.seconds
-                    name+=(" "+secondsCountToHumanString(idleTime)+" назад")
+                    name+=(" : "+secondsCountToHumanString(idleTime)+" назад")
 
-                if (task.get('value',None) is not None) and (task.get('error',None) is None):
+                if (task.get('value',None) is not None): # and (task.get('error',None) is None):
                     # not display a value in case of error
                     name += (" получено значение " + formatValue(task['value']))
 
@@ -191,7 +191,7 @@ class MainView(BoxFormView):
 
                 error=task.get('error',None)
                 if (error is not None):
-                    name += (" ошибка : " + error)
+                    name += (" : Ошибка: " + error)
             return name
         #end sub
 

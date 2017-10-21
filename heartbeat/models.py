@@ -170,15 +170,16 @@ class Hosts(models.Model):
     server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True)
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
     config = models.TextField(null=False, blank=True, default="",help_text="Настройки узла. Дополняют настройки элементов данных, работающих на этом узле")
-    alarms = models.TextField("Оповестить если", blank=False, null=False, default="",
+    alarms = models.TextField("Оповестить если", blank=True, null=False, default="",
         help_text="Если одно из условий выполняется заданное время, пользователь получит оповещение.</br>"+
-                    "Время принимается кратным времени опроса (по умолчанию 60 сек 120 сек 180 сек итд)</br>"+
-                    "Если настройки узла заданы, они заменя????????</br>"+ вкп
-                    "Примеры:</br>"+
-                    ">=20</br>"+
-                    ">10 120s</br>"+
-                    "in 10..20 160s</br>"+
-                    "out 40..50")
+                    "Время принимается кратным времени опроса, по умолчанию 1 период (60s)</br>"+
+                    "Если настройки узла заданы, они заменяют настройки элемента данных на этом узле</br>"+
+                    "Примеры (ключ параметра задается в настройках элемента данных):</br>"+
+                    "cpuLoad >=20</br>"+
+                    "temperature>10 120s</br>"+
+                    "lan=2 120s</br>"+
+                    "someParam</br>"+
+                    "!someParam2 180s")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
@@ -206,15 +207,17 @@ class Items(models.Model):
     key = models.CharField("Ключ параметра (parameter key)", max_length=255, blank=False, null=False, editable=True, default="")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
     unit = models.CharField("Единица измерения", max_length=255, blank=True, null=False, editable=True, default="")
-    config = models.TextField(blank=False, null=False, default="",help_text="Настройки элемента данных в формате JSON. Определяют тип элемента и способ его работы")
-    alarms = models.TextField("Оповестить если", blank=False, null=False, default="",
+    config = models.TextField(blank=False, null=False, default="",help_text="Настройки элемента данных в формате JSON. Определяют тип элемента данных и способ его работы")
+    alarms = models.TextField("Оповестить если", blank=True, null=False, default="",
         help_text="Если одно из условий выполняется заданное время, пользователь получит оповещение.</br>"+
-                    "Время принимается кратным времени опроса (по умолчанию 60 сек 120 сек 180 сек итд)</br>"+
-                    "Примеры:</br>"+
-                    ">=20</br>"+
-                    ">10 120s</br>"+
-                    "in 10..20 160s</br>"+
-                    "out 40..50")
+                    "Время принимается кратным времени опроса, по умолчанию 1 период (60s)</br>"+
+                    "Если настройки узла заданы, они заменяют настройки элемента данных на этом узле</br>"+
+                    "Примеры (ключ параметра задается в настройках элемента данных):</br>"+
+                    "cpuLoad >=20</br>"+
+                    "temperature>10 120s</br>"+
+                    "lan=2 120s</br>"+
+                    "someParam</br>"+
+                    "!someParam2 180s")
     resultformatter = models.ForeignKey(ResultFormatters,verbose_name="Обработчик результата", blank=True, null=True)
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     
@@ -269,9 +272,11 @@ class TaskSets(models.Model):
             items.key as "itemkey",
             items.unit,
             items.config as "itemconfig",
+            items.alarms as "itemalarms",
             hosts.name as "hostname",
             hosts.key as "hostkey",
             hosts.config as "hostconfig",
+            hosts.alarms as "hostalarms",
             format.config as "format",
             bool_or(ts.enabled and hosts.enabled and items.enabled) as "enabled"
         from
@@ -330,10 +335,17 @@ class TaskSets(models.Model):
                 except Exception as e:
                     raise Exception("проверьте настройку обработки результата "+str(e))
 
-        # todo parse alarms (str or list of str ) -- > list of dict
-        def getTaskAlarms(alarms):
-            #todo alarms is string or list of strings
-            return alarms
+
+        # todo parse alarms 
+        def getTaskAlarms(sItemAlarms,sHostAlarms):
+            # res=json.loads(sItemAlarms.replace('\\','\\\\'))
+            # print("------",res)
+            res={
+            "public > 15":{"pattern":r"\.Public", "item":"istrue", "duration":60},
+            "private > 20":{"pattern":r"\.Private", "item":"islalala", "duration":60}
+            }
+            return res
+
 
         res={}
         for task in tasks:
@@ -357,20 +369,26 @@ class TaskSets(models.Model):
                 taskValue['error']=str(e)
             taskValue["config"]=taskConfig
 
-            # remove taskAlerts from taskConfig and set them as part of task
-            taskAlarms=taskConfig.pop('alarms',None)
-            if taskAlarms is not None:
-                taskValue['alarms']=getTaskAlarms(taskAlarms)
+            try:
+                taskAlarms=getTaskAlarms(task.itemalarms,task.hostalarms)
+                if taskAlarms:
+                    taskConfig["alarms"]=taskAlarms
+            except Exception as e:
+                taskAlarms={}
+                taskValue['error']=str(e)
+            
 
             try:
                 taskFormat=getTaskFormat(task.format)
+                if taskFormat:
+                    taskConfig["format"]=taskFormat
             except Exception as e:
                 taskFormat=None
                 taskValue['error']=str(e)
-            taskValue["format"]=taskFormat
+            
 
             res[taskKey]=taskValue
-        
+            
         # print(res)
         return res
 

@@ -171,7 +171,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
             
             # filter fields for sending server --> agent
-            msgBody={k:v for k,v in task.items() if k in ['config','format','alarms']}
+            msgBody={k:v for k,v in task.items() if k in ['config',]}
         else:
             timeStamp=task['timeStamp']
             # filter fields for sending agent --> server
@@ -291,7 +291,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         else:
             # filter fields when reseiving at agent side
             tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,'unit':taskUnit}
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config','format','alarms']  })
+            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config',]  })
     # endfor messages in current request
     return errors
 
@@ -682,6 +682,24 @@ def formatValue(v,format):
         return _do1value(v,format)
     return v
 
+
+# check value for matching alarms patterns. Returns True (or dict of true for composite tasks) if match, else false
+# returns alarmresults structure
+def markAlarms(taskKey,value,alarms):
+    def markSingleTask(taskKey,value,alarms):
+        return {k:True for k,v in alarms.items() if re.compile(v['pattern']).search(taskKey)}
+
+    if type(value)==dict:
+        res={}
+        for k,v in value.items():
+            tmp=markSingleTask(taskKey+"."+k, v, alarms)
+            if tmp:
+                res.update({k:tmp})
+        return res
+    else:
+        return markSingleTask(taskKey,value,alarms)
+
+
 # check that format contains mandatory parameters and that parameter types are correct
 # param like {"item": "formatName", "param1":param1value, "param2":"param2value"}
 # pattern like {"param1":{"type":dict,"mandatory":true}, "param2": ...}
@@ -921,9 +939,9 @@ def processHeartBeatTasks(tasksToPoll):
                     if ('error' not in task.keys()) and ('value' in task.keys()):
 
                         # formatting value
-                        if task.get("format",None) is not None:
+                        if taskConfig.get("format",None) is not None:
                             try:
-                                task['value']=formatValue(task['value'],task['format'])
+                                task['value']=formatValue(task['value'],taskConfig['format'])
                             except Exception as e:
                                 task['error']="обработка результата: "+str(e)    
                         value=task['value']
@@ -938,6 +956,14 @@ def processHeartBeatTasks(tasksToPoll):
                             if not task['value']:
                                 task['value']=None
                                 task2remove.add(taskKey)
+
+                        # alarms info is present and not empty
+                        if taskConfig.get('alarms',None):
+                            # try:
+                            task['alarmresults']=markAlarms(taskKey, task['value'], taskConfig['alarms'])
+                            # except Exception as e:
+                            # task['error']="обработка оповещений: "+str(e)    
+                            
 
         task.pop('config',None)
         task.pop('format',None)

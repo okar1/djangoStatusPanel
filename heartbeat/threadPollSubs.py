@@ -87,7 +87,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
             
             # filter fields for sending server --> agent
-            msgBody={k:v for k,v in task.items() if k in ['config','format','alarms']}
+            msgBody={k:v for k,v in task.items() if k in ['config',]}
         else:
             timeStamp=task['timeStamp']
             # filter fields for sending agent --> server
@@ -207,7 +207,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
         else:
             # filter fields when reseiving at agent side
             tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,'unit':taskUnit}
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config','format','alarms']  })
+            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config',]  })
     # endfor messages in current request
     return errors
 
@@ -396,7 +396,12 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                 # hb value received and this is composite task
                 # decompose composite task to some simple tasks
                 value=task['value']
+
                 if type(value)==dict:
+                    
+                    # remove composite alarm results from task
+                    alarmResults=task.pop('alarmresults',None)
+
                     for resultKey,resultValue in value.items():
                         childTaskKey=taskKey+"."+resultKey
                         childTask=task.copy()
@@ -404,8 +409,16 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                         # ex. cpu load of core #1 #2 ... #24 are the children tasks of "cpu load"
                         childTask["parentkey"]=taskKey
                         childTask["value"]=resultValue
+
+                        # decompose alarm results to some simple tasks too
+                        if alarmResults is not None:
+                            alarmResult=alarmResults.get(resultKey,None)
+                            if alarmResult is not None:
+                                childTask['alarmresults']=alarmResult
+
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
+                    
             else:
                 # hb value not received
                 # check if there are early decomposed (children) tasks in oldTasks with 
@@ -427,7 +440,7 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
     for t2r in tasksToRemove:
         tasksToPoll.pop(t2r)
     tasksToPoll.update(tasksToAdd)
-
+    # print(tasksToPoll)
 
 # move some parameters from previous poll if they are absent in current poll
 def useOldParameters(vTasksToPoll, oldTasks):
@@ -439,6 +452,9 @@ def useOldParameters(vTasksToPoll, oldTasks):
                 # if results not received - then prolongate old errors, else no
                 if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()):
                     task['error'] = oldTasks[taskKey]['error']
+
+                if 'alarmTimeStamps' not in task.keys() and ('alarmTimeStamps' in oldTasks[taskKey].keys()):
+                    task['alarmTimeStamps'] = oldTasks[taskKey]['alarmTimeStamps']
 
             if 'value' not in task.keys() and ('value' in oldTasks[taskKey].keys()):
                 task['value'] = oldTasks[taskKey]['value']
@@ -452,11 +468,6 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 
     # extended error check and task markup for heartbeat tasks.
     def markHeartBeatTask(task):
-
-        # check that task received a value
-        if task.get('value',None) is None:
-            task['error']="Значение не вычислено"
-            return
 
         # check expected results count==actual count (if specified in settings)
         expResCount=task['config'].get('resultcount',None)
@@ -476,6 +487,22 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 return
             #end if
         #end if
+
+        # check that task received a value
+        if task.get('value',None) is None:
+            task['error']="Значение не вычислено"
+            return
+
+        # error if got a value, but one of alarms raised (show first raised alarm)
+        alarmResults=task.get('alarmresults',{})
+        # print("----",task)
+        # print(alarmResults)
+        for alarmKey,alarmValue in alarmResults.items():
+            if alarmValue:
+                task['error']="оповестить если " + alarmKey
+                return
+
+
     # end sub
 
     # remove all markups if exists
@@ -496,7 +523,6 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         # endif task enabled
     # endfor
 
-    noDataForLongTimeError='задача не присылает данные длительное время'
     # common task markup. idle time
     for task in tasksToPoll.values():
         if task.get('style',None) is None:
@@ -507,7 +533,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 if abs(idleTime) > \
                         3 * max(task['period'], pollingPeriodSec):
                     if task.get('error',None) is None:
-                        task['error'] = noDataForLongTimeError
+                        task['error'] = 'задача не присылает данные длительное время'
     #end for
 
     #additional markup for heartbeat tasks. Data value, triggers
@@ -515,9 +541,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         # task not received any markup or error in standart markup process
         # so, make extended check
         if (task.get('module',None)=='heartbeat') and \
-                (task.get('style',None) is None) and \
-                (task.get('error',noDataForLongTimeError)==noDataForLongTimeError):
-            # if no error or noDataForLongTimeError
+                (task.get('style',None) != 'ign'):
             markHeartBeatTask(task)
 
     # display error style in task caption

@@ -175,7 +175,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
         else:
             timeStamp=task['timeStamp']
             # filter fields for sending agent --> server
-            msgBody={k:v for k,v in task.items() if k in ['value','alarmresults']}
+            msgBody={k:v for k,v in task.items() if k in ['value','alarmsfired']}
             
         msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
                     'protocolversion':agentProtocolVersion}
@@ -284,7 +284,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             error=headers.get('error',None)
             
             # filter fields when reseiving at server side
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmresults'] })
+            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmsfired'] })
             tasksToPoll[taskKey]['unit']=taskUnit
             if error is not None:
                 tasksToPoll[taskKey]['error']=error
@@ -683,8 +683,9 @@ def formatValue(v,format):
     return v
 
 
-# check value for matching alarms patterns. Returns True (or dict of true for composite tasks) if match, else false
-# returns alarmresults structure
+# check value for matching alarms patterns. 
+# returns alarmsfired structure like {alarmKey:True}
+# value is always true and used because set of only keys cannot be transfered via json
 def markAlarms(taskKey,value,alarms):
     def markSingleTask(taskKey,value,alarms):
         return {k:True for k,v in alarms.items() if re.compile(v['pattern']).search(taskKey)}
@@ -960,14 +961,12 @@ def processHeartBeatTasks(tasksToPoll):
                         # alarms info is present and not empty
                         if taskConfig.get('alarms',None):
                             # try:
-                            task['alarmresults']=markAlarms(taskKey, task['value'], taskConfig['alarms'])
+                            task['alarmsfired']=markAlarms(taskKey, task['value'], taskConfig['alarms'])
                             # except Exception as e:
                             # task['error']="обработка оповещений: "+str(e)    
                             
 
         task.pop('config',None)
-        task.pop('format',None)
-        task.pop('alarms',None)
         print("")
         if taskKey not in task2remove:
             print ("result:",task)

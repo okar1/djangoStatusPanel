@@ -143,8 +143,8 @@ def threadPoll():
             from .heartbeatAgent import agentStart
             agentStart()
 
-        # time.sleep(5)
         time.sleep(opt['pollingPeriodSec'])
+        print("next poll")
 
     # end while true
 

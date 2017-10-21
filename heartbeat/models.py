@@ -341,8 +341,8 @@ class TaskSets(models.Model):
             # res=json.loads(sItemAlarms.replace('\\','\\\\'))
             # print("------",res)
             res={
-            "public > 15":{"pattern":r"\.Public", "item":"istrue", "duration":60},
-            "private > 20":{"pattern":r"\.Private", "item":"islalala", "duration":60}
+            "public > 15":{"pattern":r"\.Public", "item":"istrue", "duration":11},
+            "private > 20":{"pattern":r"\.Private", "item":"islalala", "duration":11}
             }
             return res
 

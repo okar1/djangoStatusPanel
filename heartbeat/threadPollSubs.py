@@ -91,7 +91,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
         else:
             timeStamp=task['timeStamp']
             # filter fields for sending agent --> server
-            msgBody={k:v for k,v in task.items() if k in ['value','alarmresults']}
+            msgBody={k:v for k,v in task.items() if k in ['value','alarmsfired']}
             
         msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
                     'protocolversion':agentProtocolVersion}
@@ -200,7 +200,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             error=headers.get('error',None)
             
             # filter fields when reseiving at server side
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmresults'] })
+            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmsfired'] })
             tasksToPoll[taskKey]['unit']=taskUnit
             if error is not None:
                 tasksToPoll[taskKey]['error']=error
@@ -397,10 +397,10 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                 # decompose composite task to some simple tasks
                 value=task['value']
 
+                # remove alarm dict from task
+                alarmsFired=task.pop('alarmsfired',None)
+
                 if type(value)==dict:
-                    
-                    # remove composite alarm results from task
-                    alarmResults=task.pop('alarmresults',None)
 
                     for resultKey,resultValue in value.items():
                         childTaskKey=taskKey+"."+resultKey
@@ -411,13 +411,18 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                         childTask["value"]=resultValue
 
                         # decompose alarm results to some simple tasks too
-                        if alarmResults is not None:
-                            alarmResult=alarmResults.get(resultKey,None)
-                            if alarmResult is not None:
-                                childTask['alarmresults']=alarmResult
+                        if alarmsFired is not None:
+                            childAlarmsFired=alarmsFired.get(resultKey,None)
+                            if childAlarmsFired is not None:
+                                # alarmsFired set contains keys of alarms that fired during thiss poll
+                                childTask['alarmsfired']=set(childAlarmsFired.keys())
 
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
+                else:
+                    # alarmsFired set contains keys of alarms that fired during thiss poll
+                    if alarmsFired is not None:
+                        task['alarmsfired']=set(alarmsFired.keys())
                     
             else:
                 # hb value not received
@@ -493,16 +498,36 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             task['error']="Значение не вычислено"
             return
 
-        # error if got a value, but one of alarms raised (show first raised alarm)
-        alarmResults=task.get('alarmresults',{})
-        # print("----",task)
-        # print(alarmResults)
-        for alarmKey,alarmValue in alarmResults.items():
-            if alarmValue:
-                task['error']="оповестить если " + alarmKey
-                return
+        # modify alarmTimeStamps. Doing alarmTimeStamps.keys()==alarmsFired
+        taskTimeStamp=task.get('timeStamp', None)
+        alarmTimeStamps=task.get('alarmTimeStamps',{})
+        print("tts",taskTimeStamp)
+        print("ats",alarmTimeStamps)
+        if taskTimeStamp is not None:
+            alarmsFired=task.pop('alarmsfired',set())
+           
+            # remove timeStamps for alarms that not fired
+            alarmTimeStamps={k:v for k,v in alarmTimeStamps.items() if k in alarmsFired}
 
+            # add current timeStamp only if absent in timeStamps else use old
+            for aKey in alarmsFired:
+                if aKey not in alarmTimeStamps.keys():
+                    alarmTimeStamps[aKey]=taskTimeStamp
 
+            # now alarmTimeStamps.keys()==alarmsFired, work with alarmTimeStamps
+            alarmsFired=None
+
+        print("ats2",alarmTimeStamps)
+        # error if one of alarms raised (show first raised alarm)
+        alarmsAll=task['config'].get('alarms',{})
+        for aKey,aTimeStamp in alarmTimeStamps.items():
+            aDuration = datetime.utcnow() - aTimeStamp
+            aDuration = aDuration.days * 86400 + aDuration.seconds
+
+            if aKey in alarmsAll.keys():
+                if abs(aDuration) >= alarmsAll[aKey]['duration']:
+                    task['error']="оповестить если " + aKey
+                    return
     # end sub
 
     # remove all markups if exists
@@ -537,11 +562,13 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     #end for
 
     #additional markup for heartbeat tasks. Data value, triggers
-    for task in tasksToPoll.values():
+    # for task in tasksToPoll.values():
+    for taskKey,task in tasksToPoll.items():
         # task not received any markup or error in standart markup process
         # so, make extended check
         if (task.get('module',None)=='heartbeat') and \
                 (task.get('style',None) != 'ign'):
+            print("**********", taskKey)
             markHeartBeatTask(task)
 
     # display error style in task caption

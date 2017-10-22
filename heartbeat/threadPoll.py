@@ -31,6 +31,12 @@ def threadPoll():
         pollResult = []
         pollStartTimeStamp = int(time.time())
 
+        #debug
+        if isTestEnv:
+            print("------------------------------------")
+            print("------------------------------------")
+            print("--------------------------start poll")
+
         for server in Servers.objects.all():
             serverConfig = server.getConfigObject()
             serverErrors = []
@@ -40,8 +46,7 @@ def threadPoll():
             mqConf=None
 
             # oldtsks are used to get timestamp if it absent in current taskstopoll
-            oldTasks = threadPoll.oldTasks.get(server.name, None)
-            oldTasks = {} if oldTasks is None else oldTasks
+            oldTasks = threadPoll.oldTasks.get(server.name, {})
 
             # query DB. Get Db connection and list of tasks for monitoring
             # serverConfig -> (serverDb,tasksToPoll)
@@ -142,9 +147,11 @@ def threadPoll():
         if isTestEnv:
             from .heartbeatAgent import agentStart
             agentStart()
-
+            print("--------------------------end poll (",threadPoll.pollTimeStamp-pollStartTimeStamp, " sec)")
+            print("--------------------------------------------")
+            print("--------------------------------------------")
+        
         time.sleep(opt['pollingPeriodSec'])
-        print("next poll")
 
     # end while true
 

@@ -165,21 +165,33 @@ class ServerGroups(models.Model):
 # If equals some of qos agentkeys - than heartbeat records and qos records are united in single box on gui
 # if heartbeat agentkey not equals none of qos agentkey - than new box for heartbeat agent will be created
 class Hosts(models.Model):
-    name = models.CharField("Имя узла", max_length=255, blank=False, null=False, editable=True, default="")
-    key = models.CharField("Ключ узла (routing key)", max_length=255, blank=False, null=False, editable=True, default="")
-    server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True)
+    name = models.CharField("Имя узла", max_length=255, blank=False, null=False, editable=True, default="",
+        help_text="Название плитки heartbeat, понятное пользователю.</br>"+
+                "Допускается создавать узлы с одиннаковыми названиями,</br>"+
+                "при этом результаты по таким узлам будут выведены в общую плитку")
+    key = models.CharField("Ключ узла (routing key)", max_length=255, blank=False, null=False, editable=True, default="",
+        help_text="Ключ маршрутизации RabbitMQ, который будет назначен всем сообщениям </br>"+
+                "на этом узле перед публикацией в RabbitMQ. Ключ маршрутизации может влиять на какую конкретно</br>"+
+                "машину с heartbeat agent будет отправлено задание от элемента данных.</br>"+
+                "Допускается создать несколько узлов с одинаковым ключом</br>"+
+                'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку')
+    server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True,
+        help_text="Сервер, к которому будет относиться плитка")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
-    config = models.TextField(null=False, blank=True, default="",help_text="Настройки узла. Дополняют настройки элементов данных, работающих на этом узле")
+    config = models.TextField(null=False, blank=True, default="",
+        help_text="Настройки узла в формате JSON. Дополняют настройки элементов данных, работающих на этом узле</br>"+
+                    r'Например: {"item":"fanSpeed","resultcount":5} добавит опцию resultсоunt к элементу данных fanSpeed на этом узле')
     alarms = models.TextField("Оповестить если", blank=True, null=False, default="",
         help_text="Если одно из условий выполняется заданное время, пользователь получит оповещение.</br>"+
-                    "Время принимается кратным времени опроса, по умолчанию 1 период (60s)</br>"+
-                    "Если настройки узла заданы, они заменяют настройки элемента данных на этом узле</br>"+
+                    "Время может задаваться после условия. Если время не указано, оповещение срабатывает сразу</br>"+
+                    "Время задается как количество периодов опроса (1p, 2p итд) по умолчанию один период равен 60 сек</br>"+
+                    "Если настройки узла заданы, они заменяют одноименные настройки элемента данных на этом узле</br>"+
                     "Примеры (ключ параметра задается в настройках элемента данных):</br>"+
                     "cpuLoad >=20</br>"+
-                    "temperature>10 120s</br>"+
-                    "lan=2 120s</br>"+
+                    "temperature>10 1p</br>"+
+                    "lan=2 3p</br>"+
                     "someParam</br>"+
-                    "!someParam2 180s")
+                    "!someParam2 2p")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     # hostgroup = models.ForeignKey(Servers,verbose_name="сервер", editable=True)
     class Meta:
@@ -203,22 +215,30 @@ class ResultFormatters(models.Model):
 
 # settings of heartbeat data collectors 
 class Items(models.Model):
-    name = models.CharField("Имя параметра", max_length=255, blank=False, null=False, editable=True, default="")
-    key = models.CharField("Ключ параметра (parameter key)", max_length=255, blank=False, null=False, editable=True, default="")
+    name = models.CharField("Имя параметра", max_length=255, blank=False, null=False, editable=True, default="",
+        help_text="Название параметра (метрики), понятное пользователю")
+    key = models.CharField("Ключ параметра (parameter key)", max_length=255, blank=False, null=False, editable=True, default="",
+        help_text="Код параметра. Используется при проверке условий.</br>"+
+                "Допускается создать несколько элементов данных с одинаковым ключом</br>"+
+                'Например, если параметр cpuLoad собирается разными способами на разных хостах')
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
     unit = models.CharField("Единица измерения", max_length=255, blank=True, null=False, editable=True, default="")
-    config = models.TextField(blank=False, null=False, default="",help_text="Настройки элемента данных в формате JSON. Определяют тип элемента данных и способ его работы")
+    config = models.TextField(blank=False, null=False, default="",
+        help_text="Настройки элемента данных в формате JSON. Определяют тип элемента данных и способ его работы</br>"+
+                 r'Например: {"item":"windowsFirewallStatus" }')
     alarms = models.TextField("Оповестить если", blank=True, null=False, default="",
         help_text="Если одно из условий выполняется заданное время, пользователь получит оповещение.</br>"+
-                    "Время принимается кратным времени опроса, по умолчанию 1 период (60s)</br>"+
-                    "Если настройки узла заданы, они заменяют настройки элемента данных на этом узле</br>"+
+                    "Время может задаваться после условия. Если время не указано, оповещение срабатывает сразу</br>"+
+                    "Время задается как количество периодов опроса (1p, 2p итд) по умолчанию один период равен 60 сек</br>"+
+                    "Если настройки узла заданы, они заменяют одноименные настройки элемента данных на этом узле</br>"+
                     "Примеры (ключ параметра задается в настройках элемента данных):</br>"+
                     "cpuLoad >=20</br>"+
-                    "temperature>10 120s</br>"+
-                    "lan=2 120s</br>"+
+                    "temperature>10 1p</br>"+
+                    "lan=2 3p</br>"+
                     "someParam</br>"+
-                    "!someParam2 180s")
-    resultformatter = models.ForeignKey(ResultFormatters,verbose_name="Обработчик результата", blank=True, null=True)
+                    "!someParam2 2p")
+    resultformatter = models.ForeignKey(ResultFormatters,verbose_name="Обработчик результата", blank=True, null=True,
+        help_text="Дополнительные действия после получения значения от источника данных. Умножение, сложение, форматирование строки итд")
     comment = models.CharField("Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
     
     class Meta:
@@ -251,7 +271,10 @@ class Triggers(models.Model):
 # each server can contain 0 or more mappings
 class TaskSets(models.Model):
     #related_name="membership_invites", on_delete=models.CASCADE
-    name = models.CharField("Имя задачи", max_length=255, blank=False, null=False, editable=True)
+    name = models.CharField("Имя задачи", max_length=255, blank=False, null=False, editable=True,
+        help_text="Задачи сбора данных создают связи между хостами и элементами данных.</br>"+
+                "Имя задачи указывается для удобства настройки, оно не видно пользователю.</br>"+
+                "Допускается создание повторяющихся связей в разных задачах. Такие повторы будут автоматически устраняться.")
     hosts = models.ManyToManyField(Hosts, verbose_name="Узлы сети", blank=True, editable=True) 
     items = models.ManyToManyField(Items, verbose_name="Элементы данных", blank=True, editable=True )
     triggers = models.ManyToManyField(Triggers, verbose_name="Триггеры", blank=True, editable=True )
@@ -341,8 +364,8 @@ class TaskSets(models.Model):
             # res=json.loads(sItemAlarms.replace('\\','\\\\'))
             # print("------",res)
             res={
-            "public > 15":{"pattern":r"\.Public", "item":"istrue", "duration":11},
-            "private > 20":{"pattern":r"\.Private", "item":"islalala", "duration":11}
+            "public > 15":{"pattern":r"\.Public", "item":"istrue", "duration":0},
+            "private > 20":{"pattern":r"\.Private", "item":"islalala", "duration":0}
             }
             return res
 

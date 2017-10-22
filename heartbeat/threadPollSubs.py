@@ -458,9 +458,8 @@ def useOldParameters(vTasksToPoll, oldTasks):
                 if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()):
                     task['error'] = oldTasks[taskKey]['error']
 
-                if 'alarmTimeStamps' not in task.keys() and ('alarmTimeStamps' in oldTasks[taskKey].keys()):
-                    task['alarmTimeStamps'] = oldTasks[taskKey]['alarmTimeStamps']
-
+            if 'alarmTimeStamps' not in task.keys() and ('alarmTimeStamps' in oldTasks[taskKey].keys()):
+                task['alarmTimeStamps'] = oldTasks[taskKey]['alarmTimeStamps']
             if 'value' not in task.keys() and ('value' in oldTasks[taskKey].keys()):
                 task['value'] = oldTasks[taskKey]['value']
             if 'unit' not in task.keys() and ('unit' in oldTasks[taskKey].keys()):
@@ -499,33 +498,30 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             return
 
         # modify alarmTimeStamps. Doing alarmTimeStamps.keys()==alarmsFired
-        taskTimeStamp=task.get('timeStamp', None)
         alarmTimeStamps=task.get('alarmTimeStamps',{})
-        print("tts",taskTimeStamp)
-        print("ats",alarmTimeStamps)
-        if taskTimeStamp is not None:
-            alarmsFired=task.pop('alarmsfired',set())
-           
+
+        # if not received new alarmsFired from agent in this poll - use old alarmTimeStamps structure
+        alarmsFired=task.pop('alarmsfired',None)
+        if alarmsFired is not None:
             # remove timeStamps for alarms that not fired
             alarmTimeStamps={k:v for k,v in alarmTimeStamps.items() if k in alarmsFired}
 
             # add current timeStamp only if absent in timeStamps else use old
             for aKey in alarmsFired:
                 if aKey not in alarmTimeStamps.keys():
-                    alarmTimeStamps[aKey]=taskTimeStamp
+                    alarmTimeStamps[aKey]=pollStartTimeStamp
 
+            # save alarmTimeStamps for getting it from oldTasks in next poll
+            task['alarmTimeStamps']=alarmTimeStamps        
             # now alarmTimeStamps.keys()==alarmsFired, work with alarmTimeStamps
             alarmsFired=None
 
-        print("ats2",alarmTimeStamps)
         # error if one of alarms raised (show first raised alarm)
         alarmsAll=task['config'].get('alarms',{})
         for aKey,aTimeStamp in alarmTimeStamps.items():
-            aDuration = datetime.utcnow() - aTimeStamp
-            aDuration = aDuration.days * 86400 + aDuration.seconds
-
+            aDuration = pollStartTimeStamp - aTimeStamp
             if aKey in alarmsAll.keys():
-                if abs(aDuration) >= alarmsAll[aKey]['duration']:
+                if abs(aDuration) >= alarmsAll[aKey]['duration'] * pollingPeriodSec:
                     task['error']="оповестить если " + aKey
                     return
     # end sub
@@ -568,7 +564,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         # so, make extended check
         if (task.get('module',None)=='heartbeat') and \
                 (task.get('style',None) != 'ign'):
-            print("**********", taskKey)
+            # print("**********", taskKey)
             markHeartBeatTask(task)
 
     # display error style in task caption

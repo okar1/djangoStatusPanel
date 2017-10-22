@@ -547,7 +547,7 @@ def formatValue(v,format):
             return None
 
         if type(format) is not dict:
-           raise Exception("проверьте настройку обработки результата")
+           raise Exception("Проверьте настройки программы")
         
         item=format.get("item",None)
 
@@ -656,8 +656,48 @@ def formatValue(v,format):
             )
             if v in params['values']:
                 v=None
+        # true if python-true value received
+        elif item=="istrue":
+            # params=checkParameters(format,{
+            #     "values":{"type":list,
+            #             "mandatory":True},
+            #     }
+            # )
+            if v:
+                v=True
+            else:
+                v=False
+        elif item=="isfalse":
+            # params=checkParameters(format,{
+            #     "values":{"type":list,
+            #             "mandatory":True},
+            #     }
+            # )
+            if v:
+                v=False
+            else:
+                v=True
+        elif item==">" or item==">=" or item=="<" or item=="<=" or item=="=" or item=="!=":
+            params=checkParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+            v2=params['value']
+            if item==">":
+                v=(v>v2)
+            elif item==">=":
+                v=(v>=v2)
+            elif item=="<":
+                v=(v<v2)
+            elif item=="<=":
+                v=(v<=v2)
+            elif item=="=":
+                v=(v==v2)
+            elif item=="!=":
+                v=(v!=v2)
         else:
-            raise Exception("поле item не задано либо некорректно. Проверьте настройку обработки результата")
+            raise Exception("поле item не задано либо некорректно. Проверьте настройки программы")
             
         return v
 
@@ -688,14 +728,27 @@ def formatValue(v,format):
 # value is always true and used because set of only keys cannot be transfered via json
 def markAlarms(taskKey,value,alarms):
     def markSingleTask(taskKey,value,alarms):
-        return {k:True for k,v in alarms.items() if re.compile(v['pattern']).search(taskKey)}
+        assert type(value) in [int, float,bool,str]
+
+        res={}
+        for aKey,aData in alarms.items():
+            # alarm pattern is suitable for this task, check that alarm condition is true
+            
+            if aData['pattern'].search(taskKey) is not None:
+                # alarm check rules and result format rules are processed by the same sub.
+                # if applying alarm rule to value gives something true
+                # (True, not zero, not empty string or dict etc) then alarm will be fired
+                if formatValue(value,aData):
+                    res.update({aKey:True})
+        return res
 
     if type(value)==dict:
         res={}
         for k,v in value.items():
-            tmp=markSingleTask(taskKey+"."+k, v, alarms)
-            if tmp:
-                res.update({k:tmp})
+            if v is not None:
+                tmp=markSingleTask(taskKey+"."+k, v, alarms)
+                if tmp:
+                    res.update({k:tmp})
         return res
     else:
         return markSingleTask(taskKey,value,alarms)
@@ -720,7 +773,7 @@ def checkParameters(param,pattern):
     for paramKey,paramOpts in pattern.items():
         isMandatory=paramOpts.get('mandatory',True)
         if isMandatory and (paramKey not in param.keys()):
-            raise Exception("не указан параметр "+paramKey+" Проверьте настройку обработки результата")
+            raise Exception("не указан параметр "+paramKey+" Проверьте настройки программы")
         else:
             # (mandatory and present) or (not mandatory)
             paramValue=param.get(paramKey,None)
@@ -733,7 +786,7 @@ def checkParameters(param,pattern):
                 # and check OK if type of value is equal it
                 if (type(paramType)==list and (type(paramValue) not in paramType)) or \
                    (type(paramType)!=list and (type(paramValue)!=paramType)):
-                    raise Exception("тип параметра "+paramKey+" задан неверно. Проверьте настройку обработки результата")                        
+                    raise Exception("тип параметра "+paramKey+" задан неверно. Проверьте настройки программы")                        
             else:
                 # use default value if "default" key specified in pattern
                 defaultValue=paramOpts.get('default',None)
@@ -944,26 +997,35 @@ def processHeartBeatTasks(tasksToPoll):
                             try:
                                 task['value']=formatValue(task['value'],taskConfig['format'])
                             except Exception as e:
+                                traceback.print_exc(file=sys.stdout)
                                 task['error']="обработка результата: "+str(e)    
+                        
                         value=task['value']
                             
                         # value is set, but equals none - remove such task
                         if value is None:
                             task2remove.add(taskKey)
-                        elif type(value)==dict:
-                            # and for composite tasks - remove None results too
-                            task['value']={k:v for k,v in value.items() if v is not None}
-                            # not return empty composite tasks. Return  none instead
-                            if not task['value']:
-                                task['value']=None
-                                task2remove.add(taskKey)
+                        else:
+                            if type(value)==dict:
+                                # and for composite tasks - remove None results too
+                                task['value']={k:v for k,v in value.items() if v is not None}
+                                # not return empty composite tasks. Return  none instead
+                                if not task['value']:
+                                    task['value']=None
+                                    task2remove.add(taskKey)
 
                         # alarms info is present and not empty
-                        if taskConfig.get('alarms',None):
-                            # try:
-                            task['alarmsfired']=markAlarms(taskKey, task['value'], taskConfig['alarms'])
-                            # except Exception as e:
-                            # task['error']="обработка оповещений: "+str(e)    
+                        if task['value'] is not None and taskConfig.get('alarms',None):
+                            try:
+                                alarms=taskConfig['alarms']
+                                
+                                # pre-compile regex patterns
+                                for alarm in alarms.values():
+                                    alarm['pattern']=re.compile(alarm['pattern'])
+                                task['alarmsfired']=markAlarms(taskKey, task['value'], alarms)
+                            except Exception as e:
+                                traceback.print_exc(file=sys.stdout)
+                                task['error']="обработка оповещений: "+str(e)    
                             
 
         task.pop('config',None)

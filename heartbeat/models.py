@@ -359,14 +359,14 @@ class TaskSets(models.Model):
                     raise Exception("проверьте настройку обработки результата "+str(e))
 
 
-        # todo parse alarms 
+        # todo parse alarms correctly. Process hostAlarms
         def getTaskAlarms(sItemAlarms,sHostAlarms):
-            # res=json.loads(sItemAlarms.replace('\\','\\\\'))
+            res=json.loads(sItemAlarms.replace('\\','\\\\'))
             # print("------",res)
-            res={
-            "public > 15":{"pattern":r"\.Public", "item":"istrue", "duration":0},
-            "private > 20":{"pattern":r"\.Private", "item":"islalala", "duration":0}
-            }
+            # res={
+            # "public > 15":{"pattern":r"\.Public", "item":"isfalse", "duration":0},
+            # "private > 20":{"pattern":r"\.Private", "item":"isfalse", "duration":0}
+            # }
             return res
 
 

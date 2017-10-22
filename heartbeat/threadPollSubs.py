@@ -398,7 +398,7 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                 value=task['value']
 
                 # remove alarm dict from task
-                alarmsFired=task.pop('alarmsfired',None)
+                alarmsFired=task.pop('alarmsfired',{})
 
                 if type(value)==dict:
 
@@ -411,18 +411,16 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                         childTask["value"]=resultValue
 
                         # decompose alarm results to some simple tasks too
-                        if alarmsFired is not None:
-                            childAlarmsFired=alarmsFired.get(resultKey,None)
-                            if childAlarmsFired is not None:
-                                # alarmsFired set contains keys of alarms that fired during thiss poll
-                                childTask['alarmsfired']=set(childAlarmsFired.keys())
+                        childAlarmsFired=alarmsFired.get(resultKey,{})
+
+                        # alarmsFired set contains keys of alarms that fired during this poll
+                        childTask['alarmsfired']=set(childAlarmsFired.keys())
 
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
                 else:
                     # alarmsFired set contains keys of alarms that fired during thiss poll
-                    if alarmsFired is not None:
-                        task['alarmsfired']=set(alarmsFired.keys())
+                    task['alarmsfired']=set(alarmsFired.keys())
                     
             else:
                 # hb value not received
@@ -502,6 +500,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 
         # if not received new alarmsFired from agent in this poll - use old alarmTimeStamps structure
         alarmsFired=task.pop('alarmsfired',None)
+        
         if alarmsFired is not None:
             # remove timeStamps for alarms that not fired
             alarmTimeStamps={k:v for k,v in alarmTimeStamps.items() if k in alarmsFired}
@@ -599,6 +598,11 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
                     #agentName not included - because it already presents in box name
                     ["style","agentKey","timeStamp","enabled","unit","value","error","itemName"]
                 if key in task.keys()})
+
+            if task.get('config',None) is not None:
+                alarms=task['config'].get('alarms',None)
+                if alarms is not None:
+                    taskData.update({'alarms':alarms})
 
             if task.get('style', None) == 'rem':
                 agentHasErrors.add(boxName)

@@ -3,6 +3,7 @@ from shared.views import BoxForm, BoxFormView
 from .threadPoll import threadPoll
 from .models import Servers, ServerGroups, Options
 import time
+import re
 from datetime import datetime
 
 
@@ -165,7 +166,14 @@ class MainView(BoxFormView):
             if task.get('servertask',False):
                 name=taskKey+" : "
             else:
-                name= "{0} ({1})".format(taskKey, task['itemName'])
+                name= "{0} ({1}".format(taskKey, task['itemName'])
+
+            alarms=task.get('alarms',{})
+            alarmsCount=sum([True for alarmData in alarms.values() if re.search(alarmData['pattern'],taskKey) is not None])
+            if alarmsCount>0:
+                name+= " +"+str(alarmsCount)+" alarm"
+
+            name+=")"
 
             if not task.get('enabled',True):
                 name += " : Задача отключена"

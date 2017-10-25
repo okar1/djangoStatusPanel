@@ -34,7 +34,6 @@ def threadPoll():
         #debug
         if isTestEnv:
             print("------------------------------------")
-            print("------------------------------------")
             print("--------------------------start poll")
 
         for server in Servers.objects.all():
@@ -76,6 +75,11 @@ def threadPoll():
 
                 # send heartbeat tasks request to rabbitmq exchange
                 subs.subSendHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)
+
+                #debug
+                if isTestEnv:
+                    from .heartbeatAgent import agentStart
+                    agentStart()
                 
                 # receive heartbeat tasks request from rabbitmq queue
                 subs.subReceiveHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors,oldTasks)
@@ -145,10 +149,9 @@ def threadPoll():
 
         #debug
         if isTestEnv:
-            from .heartbeatAgent import agentStart
-            agentStart()
+            # from .heartbeatAgent import agentStart
+            # agentStart()
             print("--------------------------end poll (",threadPoll.pollTimeStamp-pollStartTimeStamp, " sec)")
-            print("--------------------------------------------")
             print("--------------------------------------------")
         
         time.sleep(opt['pollingPeriodSec'])

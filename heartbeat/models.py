@@ -361,7 +361,10 @@ class TaskSets(models.Model):
 
         # todo parse alarms correctly. Process hostAlarms
         def getTaskAlarms(sItemAlarms,sHostAlarms):
-            res=json.loads(sItemAlarms.replace('\\','\\\\'))
+            if sItemAlarms!='':
+                res=json.loads(sItemAlarms.replace('\\','\\\\'))
+            else:
+                res={}
             # print("------",res)
             # res={
             # "public > 15":{"pattern":r"\.Public", "item":"isfalse", "duration":0},

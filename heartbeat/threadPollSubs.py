@@ -797,3 +797,19 @@ def commitPollResult(tasksToPoll, serverName, vServerErrors, timeDbConfig,vPollR
         # rebuild pollResult again with new serverErrors
         # use += instead of = to keep object reference
         vPollResult+=makePollResult(tasksToPoll, serverName, vServerErrors)
+
+
+# if some tasksToPoll name found in alias list - rename such task to hostname, that owns alias
+# in this case box of such taskToPoll will be merged into host's box.
+# aliases like {server:{host:{aliases set},host2:{aliases set}},server2:...}
+ # tasksToPoll like {taskKey: {"agentKey":"aaa", "itemName:" "period":10} }}
+def applyHostAliases(allServerAliases,serverName,vTasks):
+    allHostAliases=allServerAliases.get(serverName,{})
+    for task in vTasks.values():
+
+        for hostName,aliases in allHostAliases.items():
+            # change "native" name in qos task to hostname that has corresponding alias
+            if task['agentName'] in aliases:
+                task['agentName']=hostName
+                break
+

@@ -112,7 +112,9 @@ def query(channelNameRegex=".*",levelNameRegex=".*", agentList=(), channelList=(
 		  magenttask.displayname = mgrouppolicy.taskidentifier_taskname AND
 		  mgrouppolicy.state = 'ACTIVE' AND 
 		  magenttask.deleted != TRUE AND 
-		  magenttask.disabled != TRUE
+		  magenttask.disabled != TRUE --AND
+		  --(mgrouppolicy.parameteridentifier_name != 'audioBitrate' and mgrouppolicy.parameteridentifier_name != 'videoBitrate')
+		  --(mgrouppolicy.parameteridentifier_name = 'audioBitrate' or mgrouppolicy.parameteridentifier_name = 'videoBitrate')
 		  {2}
 		GROUP BY
 			{3}

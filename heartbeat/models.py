@@ -226,7 +226,14 @@ class Hosts(models.Model):
             res[server]=singleServerAliases
 
             aliasesStr=host.aliases.replace('\r','')
-            singleServerAliases[hostName]=set(filter(lambda x: x != '' , aliasesStr.split('\n')))
+            
+            oldValue = singleServerAliases.get(hostName,None)
+            newValue = set(filter(lambda x: x != '' , aliasesStr.split('\n')))
+            if oldValue is not None:
+                # set union
+                singleServerAliases[hostName]=oldValue | newValue
+            else:
+                singleServerAliases[hostName]=newValue
 
         return res
 

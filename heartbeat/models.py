@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import json
 import random
+import traceback
+
+import sys
 from os import urandom
 from base64 import b64encode, b64decode
 from Crypto.Cipher import ARC4
@@ -380,10 +383,11 @@ class TaskSets(models.Model):
             else:
                 try:
                     res=json.loads(formatStr.replace('\\','\\\\'))
-                    assert type(res)==dict
+                    assert type(res)==dict or type(res)==list
                     return res
                 except Exception as e:
                     raise Exception("проверьте настройку обработки результата "+str(e))
+                    traceback.print_exc(file=sys.stdout)
 
 
         # todo parse alarms correctly. Process hostAlarms
@@ -420,6 +424,8 @@ class TaskSets(models.Model):
             except Exception as e:
                 taskConfig={}
                 taskValue['error']=str(e)
+                traceback.print_exc(file=sys.stdout)
+
             taskValue["config"]=taskConfig
 
             try:
@@ -429,8 +435,8 @@ class TaskSets(models.Model):
             except Exception as e:
                 taskAlarms={}
                 taskValue['error']="Настройка оповещений "+str(e)
+                traceback.print_exc(file=sys.stdout)
             
-
             try:
                 taskFormat=getTaskFormat(task.format)
                 if taskFormat:
@@ -438,6 +444,7 @@ class TaskSets(models.Model):
             except Exception as e:
                 taskFormat=None
                 taskValue['error']="Настройка обработки результата "+str(e)
+                traceback.print_exc(file=sys.stdout)
             
 
             res[taskKey]=taskValue

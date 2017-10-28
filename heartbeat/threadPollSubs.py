@@ -500,7 +500,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         #end if
 
         # check that task received a value
-        if task.get('value',None) is None:
+        if (task.get('value',None) is None) and (task.get('error',None) is None):
             task['error']="Значение не вычислено"
             return
 

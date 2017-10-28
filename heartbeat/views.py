@@ -82,13 +82,20 @@ class MainView(BoxFormView):
             # requested specified servergroup
             serverGroups=ServerGroups.objects.filter(id=serverGroupID)
         
-        #filter only servergroups, wich user has permission
+        #for non-privilleged users filter only servergroups, wich user has permission
         if not (self.request.user.is_staff or self.request.user.is_superuser):
             serverGroups=serverGroups.filter(usergroups__in=self.request.user.groups.all())
+        
+        # for privileged users display all servers if no one serverGroup exists
+        if (self.request.user.is_staff or self.request.user.is_superuser) and \
+                serverGroupID is None:
+            serverq=Servers.objects.all()
+        else:
+            # in all other cases filter names of servers wich are members of calculated servergroups
+            serverq=Servers.objects.filter(servergroups__id__in=serverGroups)
 
-        # names of servers wich are members of calculated servergroups
         serverList = list(
-                        Servers.objects.filter(servergroups__id__in=serverGroups).
+                        serverq.
                         order_by('name').values_list('name', flat=True)
                         )
 

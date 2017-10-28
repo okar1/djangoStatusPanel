@@ -29,8 +29,8 @@ import traceback
 mqConf={
     "server":'127.0.0.1',
     "port":"15672",
-    "user":"guest",
-    "pwd":"guest",
+    "user":"{{rabbitmq_user}}",
+    "pwd":"{{rabbitmq_pass}}",
     "vhost":"/"
     }
 

@@ -7,6 +7,7 @@ from Crypto.Cipher import ARC4
 
 from django import forms
 from django.db import models
+from django.contrib.auth.models import Group
 from shared.dotmap import DotMap
 
 
@@ -153,6 +154,9 @@ class ServerGroups(models.Model):
                             blank=False, null=False, editable=True)
     servers = models.ManyToManyField(
         Servers, blank=False, verbose_name="Серверы", editable=True)
+    usergroups = models.ManyToManyField(Group, blank=True, verbose_name="Доступна для группы пользователей", editable=True,
+        help_text='Данная группа серверов будет видна только указанным группам пользователей.</br>'+ \
+        'Пользователям с правами "Администратор" и "Персонал" всегда будут видны все группы серверов.</br>')
 
     class Meta:
         verbose_name = 'группа серверов'
@@ -361,7 +365,10 @@ class TaskSets(models.Model):
 
         # todo parse alarms correctly. Process hostAlarms
         def getTaskAlarms(sItemAlarms,sHostAlarms):
-            res=json.loads(sItemAlarms.replace('\\','\\\\'))
+            if sItemAlarms =='':
+                return {}
+            else:
+                res=json.loads(sItemAlarms.replace('\\','\\\\'))
             # print("------",res)
             # res={
             # "public > 15":{"pattern":r"\.Public", "item":"isfalse", "duration":0},
@@ -398,7 +405,7 @@ class TaskSets(models.Model):
                     taskConfig["alarms"]=taskAlarms
             except Exception as e:
                 taskAlarms={}
-                taskValue['error']=str(e)
+                taskValue['error']="Настройка оповещений "+str(e)
             
 
             try:
@@ -407,7 +414,7 @@ class TaskSets(models.Model):
                     taskConfig["format"]=taskFormat
             except Exception as e:
                 taskFormat=None
-                taskValue['error']=str(e)
+                taskValue['error']="Настройка обработки результата "+str(e)
             
 
             res[taskKey]=taskValue

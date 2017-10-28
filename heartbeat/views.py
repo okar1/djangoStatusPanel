@@ -26,8 +26,18 @@ class MainView(BoxFormView):
     tasks={}
     timeStamp=0
 
+    # returns serverGroup list to gui
     def getGroups(self):
-        return list(ServerGroups.objects.all().order_by('name').values('id', 'name'))
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            res=list(ServerGroups.objects.all().order_by('name').values('id', 'name'))    
+        else:
+            # get only servergroups, wich "usergroups" field contains one or more usergroups of this user 
+            res=list(ServerGroups.objects.filter(usergroups__in=self.request.user.groups.all()).order_by('name').values('id', 'name'))
+ 
+        # if we got only one serverGroup - hide serverGroup selector in gui. 
+        if len(res)==1:
+            res=[]
+        return res
 
     # return base timestamp for timer value calculation
     def getProgresUpdatedAgoSec(self):
@@ -37,10 +47,11 @@ class MainView(BoxFormView):
     def getTimerDangerousTimeSec(self):
         return 3 * Options.getOptionsObject()['pollingPeriodSec']
 
+    # return boxes list of requested servergroup to gui
     # 1) if there are >1 servers in this group - then add servername to all box captions
     # 2) if there is 1 server in this group - don't add servername to caption
     # 3) if caption length too long - then truncate it
-    def getBoxesForGroup(self, groupID):
+    def getBoxesForGroup(self, serverGroupID):
 
         def makeBoxCaption(key,value,serverName,addServerName):
             if key=="name":
@@ -63,25 +74,38 @@ class MainView(BoxFormView):
                     for k, v in d.items()
                     if k in ['id', 'name', 'error', 'progress']}
 
-        if groupID is None:
-            serverCount=Servers.objects.count()
-            res = [
-                    filterBoxFields(v,serverCount!=1)
-                    for v in threadPoll.pollResult]
+
+        if serverGroupID is None:
+            # requested all available serverGroups
+            serverGroups=ServerGroups.objects.all()
         else:
-            serverList = list(
-                            Servers.objects.filter(servergroups__id=int(groupID)).
-                            order_by('name').values_list('name', flat=True)
-                            )
-            serverCount = len(serverList)            
-            res = [
-                    filterBoxFields(v,serverCount!=1)
-                    for v in threadPoll.pollResult
-                    if v['pollServer'] in serverList]
+            # requested specified servergroup
+            serverGroups=ServerGroups.objects.filter(id=serverGroupID)
+        
+        #filter only servergroups, wich user has permission
+        if not (self.request.user.is_staff or self.request.user.is_superuser):
+            serverGroups=serverGroups.filter(usergroups__in=self.request.user.groups.all())
+
+        # names of servers wich are members of calculated servergroups
+        serverList = list(
+                        Servers.objects.filter(servergroups__id__in=serverGroups).
+                        order_by('name').values_list('name', flat=True)
+                        )
+
+        serverCount = len(serverList)
+        res = [
+                filterBoxFields(v,serverCount!=1)
+                for v in threadPoll.pollResult
+                if v['pollServer'] in serverList]
+
         self.progressArray = res
         return res
 
     def getRecordsForBox(self, boxID):
+        # WARNING
+        # for speed reasons here we not provide a security check
+        # that requested boxID is part of server that part of serverGroup that current user has permission
+        # so if any registered user knows exactly boxid like "xdemo3.Probe HLS 3" - he can request records for this box
         if self.__class__.timeStamp < threadPoll.pollTimeStamp or not self.__class__.tasks:
             # print ('update tasks view data')
             self.__class__.timeStamp = threadPoll.pollTimeStamp
@@ -169,7 +193,8 @@ class MainView(BoxFormView):
                 name= "{0} ({1}".format(taskKey, task['itemName'])
 
             alarms=task.get('alarms',{})
-            alarmsCount=sum([True for alarmData in alarms.values() if re.search(alarmData['pattern'],taskKey) is not None])
+            # if 'pattern' not in keys - return taskkey and *, so re.search allways wil be none
+            alarmsCount=sum([True for alarmData in alarms.values() if re.search(alarmData.get('pattern',taskKey+"*"),taskKey) is not None])
             if alarmsCount>0:
                 name+= " +"+str(alarmsCount)+" alarm"
 

@@ -143,7 +143,7 @@ class ServersAdmin(admin.ModelAdmin):
 @admin.register(ServerGroups)
 class ServerGroupsAdmin(admin.ModelAdmin):
     list_display = ['name', ]
-    fields = ['name', 'servers']
+    fields = ['name', 'servers','usergroups']
 
 
 @admin.register(Options)

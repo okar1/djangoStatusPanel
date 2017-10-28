@@ -2,7 +2,7 @@
 import time
 import threading
 import sys
-from .models import Servers, Options, TaskSets
+from .models import Servers, Options, TaskSets, Hosts
 from . import threadPollSubs as subs
 from .threadMqConsumers import MqConsumers
 
@@ -30,10 +30,10 @@ def threadPoll():
         # "pollServer": ,data:boxTasks}]
         pollResult = []
         pollStartTimeStamp = int(time.time())
+        hostAliases=Hosts.getAllAliases()
 
         #debug
         if isTestEnv:
-            print("------------------------------------")
             print("------------------------------------")
             print("--------------------------start poll")
 
@@ -58,13 +58,19 @@ def threadPoll():
             mqConf = subs.getMqConf(serverConfig['mq'], server.name, serverErrors)
             #opt["maxMsgTotal"]
 
-            if mqConf:
-                # add heartbeat tasks to taskstopoll. All such tasks has "module":"heartbeat"
-                tasksToPoll.update(
-                    TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
-                )
+            #get tasks for heartbeat agent from app DB. All such tasks has "module":"heartbeat"
+            hbTasks=TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
 
             if mqConf and tasksToPoll:
+
+                # if some tasksToPoll name found in alias list - rename such task to hostname, that owns alias
+                # in this case box of such taskToPoll will be merged into host's box
+                subs.applyHostAliases(hostAliases,server.name,tasksToPoll)
+
+                # add heartbeat tasks to taskstopoll.
+                tasksToPoll.update(hbTasks)
+                hbTasks=None
+
                 mqConsumerId=str(server.id)+" "+server.name
 
                 # opens mq consumer for this server. If it alredy opened - do nothing 
@@ -73,9 +79,13 @@ def threadPoll():
                 # polling RabbitMQ (download messages from consumer), add "idleTime" to tasksToPoll
                 subs.pollMQ(server.name, mqConsumerId,serverErrors,tasksToPoll)
 
-
                 # send heartbeat tasks request to rabbitmq exchange
                 subs.subSendHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)
+
+                #debug
+                if isTestEnv:
+                    from .heartbeatAgent import agentStart
+                    agentStart()
                 
                 # receive heartbeat tasks request from rabbitmq queue
                 subs.subReceiveHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors,oldTasks)
@@ -145,10 +155,9 @@ def threadPoll():
 
         #debug
         if isTestEnv:
-            from .heartbeatAgent import agentStart
-            agentStart()
+            # from .heartbeatAgent import agentStart
+            # agentStart()
             print("--------------------------end poll (",threadPoll.pollTimeStamp-pollStartTimeStamp, " sec)")
-            print("--------------------------------------------")
             print("--------------------------------------------")
         
         time.sleep(opt['pollingPeriodSec'])

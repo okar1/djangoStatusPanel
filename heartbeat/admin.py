@@ -228,7 +228,7 @@ class TaskSetSelectorForm(forms.ModelForm):
 class HostsForm(TaskSetSelectorForm):
     class Meta:
         model = Hosts
-        fields=('name','key','server','enabled','config','alarms','comment','taskSets',)
+        fields=('name','key','server','enabled','config','aliases','alarms','comment','taskSets',)
 
 
 # custom form for items

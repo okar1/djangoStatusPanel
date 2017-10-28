@@ -181,10 +181,16 @@ class Hosts(models.Model):
                 'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку')
     server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True,
         help_text="Сервер, к которому будет относиться плитка")
-    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True )
+    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True,
+        help_text="Будут ли на этот узел отправлены задания для heartbeat agent.</br>"+
+                  "Также должны быть включены соответствующие элементы данных и задачи сбора данных</br>"+
+                  "Настройка не влияет на qos-задачи на этом узле" )
     config = models.TextField(null=False, blank=True, default="",
         help_text="Настройки узла в формате JSON. Дополняют настройки элементов данных, работающих на этом узле</br>"+
                     r'Например: {"item":"fanSpeed","resultcount":5} добавит опцию resultсоunt к элементу данных fanSpeed на этом узле')
+    aliases = models.TextField("Алиасы", max_length=255, blank=True, null=False, editable=True, default="",
+        help_text="Список алиасов (синонимов) для этой плитки heartbeat. Каждый алиас пишется в новой строке</br>"+
+                'При совпадении имени БК с одним из алиасов, его задачи этого БК будут объединены с этой плиткой')
     alarms = models.TextField("Оповестить если", blank=True, null=False, default="",
         help_text="Если одно из условий выполняется заданное время, пользователь получит оповещение.</br>"+
                     "Время может задаваться после условия. Если время не указано, оповещение срабатывает сразу</br>"+
@@ -204,6 +210,23 @@ class Hosts(models.Model):
 
     def __str__(self):
         return ("(Отключен) " if not self.enabled else "") + " (" +  self.server.name + ") " + self.name
+
+    # returns hosts aliases like {server:{host:{aliases set},host2:{aliases set}},server2:...}
+    def getAllAliases():
+        res={}
+        hosts=Hosts.objects.all()
+        for host in hosts:
+            server=host.server.name
+            hostName=host.name
+            
+            singleServerAliases=res.get(server,{})
+            res[server]=singleServerAliases
+
+            aliasesStr=host.aliases.replace('\r','')
+            singleServerAliases[hostName]=set(filter(lambda x: x != '' , aliasesStr.split('\n')))
+
+        return res
+
 
 # post processing expressions for result
 class ResultFormatters(models.Model):
@@ -365,10 +388,10 @@ class TaskSets(models.Model):
 
         # todo parse alarms correctly. Process hostAlarms
         def getTaskAlarms(sItemAlarms,sHostAlarms):
-            if sItemAlarms =='':
-                return {}
-            else:
+            if sItemAlarms!='':
                 res=json.loads(sItemAlarms.replace('\\','\\\\'))
+            else:
+                res={}
             # print("------",res)
             # res={
             # "public > 15":{"pattern":r"\.Public", "item":"isfalse", "duration":0},

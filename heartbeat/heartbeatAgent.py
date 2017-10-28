@@ -73,7 +73,7 @@ presets={
     # ==============================================================================
     #  *GPS_NMEA(6)     .GPS.            0 l    -   64    0    0.000    0.000   0.000
     #  51.140.127.197  128.138.141.172  2 u   23   64    1   75.455  117.537   0.000
-    "ntpSyncAgoSec":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":3,
+    "ntpSyncAgoSec":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":10,
         "include":[r"""
             (?x)
                ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key
@@ -87,7 +87,7 @@ presets={
                \s*\S*                # offset field
                \s*\S*                # jitter field
         """]},
-    "ntpSyncOffset":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":3,
+    "ntpSyncOffset":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":10,
         "include":[r"""
             (?x)
                ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key

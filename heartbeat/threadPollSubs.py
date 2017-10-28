@@ -9,6 +9,7 @@ from . import timeDB
 
 
 timeStampFormat="%Y%m%d%H%M%S"
+matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
 agentProtocolVersion=2
 
 # send message "ServerStarted" to "qos.service" queue
@@ -345,13 +346,19 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
                 errors.add("Задача " + taskKey + " не зарегистрирована в БД")
                 continue
 
-            if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
+            if msgType in ['com.tecomgroup.qos.communication.message.ResultMessage',
+                           'com.tecomgroup.qos.communication.message.MatchResultMessage']:
+
+                if msgType=='com.tecomgroup.qos.communication.message.ResultMessage':
+                    tmp=timeStampFormat
+                else:
+                    tmp=matchTimeStampFormat
 
                 taskResults = mData['results']
                 for tr in taskResults:
                     # if result has any parameters - store in timeStamp vTasksToPoll
                     if len(tr['parameters'].keys()) > 0:
-                        vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], timeStampFormat)
+                        vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], tmp)
 
             elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
                 if len(mData['TSStructure']) > 0:
@@ -476,9 +483,11 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         if expResCount is not None:
             # user-specified key for item, like "cpu", "loadAverage" etc
             itemKey=task['itemKey']
+            agentKey=task['agentKey']
             agentName=task['agentName']
             isTaskToCount=lambda t: \
                 t.get('itemKey',None)==itemKey and \
+                t.get('agentKey',None)==agentKey and \
                 t.get('agentName',None)==agentName and \
                 t.get('enabled',True)
             factResCount=sum([1 for t in tasksToPoll.values() if isTaskToCount(t) ])
@@ -788,3 +797,19 @@ def commitPollResult(tasksToPoll, serverName, vServerErrors, timeDbConfig,vPollR
         # rebuild pollResult again with new serverErrors
         # use += instead of = to keep object reference
         vPollResult+=makePollResult(tasksToPoll, serverName, vServerErrors)
+
+
+# if some tasksToPoll name found in alias list - rename such task to hostname, that owns alias
+# in this case box of such taskToPoll will be merged into host's box.
+# aliases like {server:{host:{aliases set},host2:{aliases set}},server2:...}
+ # tasksToPoll like {taskKey: {"agentKey":"aaa", "itemName:" "period":10} }}
+def applyHostAliases(allServerAliases,serverName,vTasks):
+    allHostAliases=allServerAliases.get(serverName,{})
+    for task in vTasks.values():
+
+        for hostName,aliases in allHostAliases.items():
+            # change "native" name in qos task to hostname that has corresponding alias
+            if task['agentName'] in aliases:
+                task['agentName']=hostName
+                break
+

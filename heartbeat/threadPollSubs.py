@@ -346,19 +346,24 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
                 errors.add("Задача " + taskKey + " не зарегистрирована в БД")
                 continue
 
-            if msgType in ['com.tecomgroup.qos.communication.message.ResultMessage',
-                           'com.tecomgroup.qos.communication.message.MatchResultMessage']:
-
-                if msgType=='com.tecomgroup.qos.communication.message.ResultMessage':
-                    tmp=timeStampFormat
-                else:
-                    tmp=matchTimeStampFormat
-
+            if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
                 taskResults = mData['results']
                 for tr in taskResults:
                     # if result has any parameters - store in timeStamp vTasksToPoll
                     if len(tr['parameters'].keys()) > 0:
-                        vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], tmp)
+                        vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], timeStampFormat)
+
+            elif msgType ==  'com.tecomgroup.qos.communication.message.MatchResultMessage':
+                taskResults = mData['results']
+                for tr in taskResults:
+                    # if result has any parameters - current timeStamp in vTasksToPoll.
+                    # timestamps in amqp message not satisfied heartbeat task
+                    if len(tr['parameters'].keys()) > 0:
+                        vTasksToPoll[taskKey]['timeStamp']=datetime.utcnow()
+
+                    # timeStamp=tr.get('parameters',{}).get('match',{}).get('second_event_time',None)
+                    # if timeStamp is not None:
+                    #     vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], matchTimeStampFormat)
 
             elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
                 if len(mData['TSStructure']) > 0:

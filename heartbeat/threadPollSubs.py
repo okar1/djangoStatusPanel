@@ -606,7 +606,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 idleTime = idleTime.days * 86400 + idleTime.seconds
 
                 if abs(idleTime) > \
-                        3 * max(task['period'], pollingPeriodSec):
+                        6 * max(task['period'], pollingPeriodSec):
                     if task.get('error',None) is None:
                         task['error'] = 'задача не присылает данные длительное время'
     #end for

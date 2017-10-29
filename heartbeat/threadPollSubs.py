@@ -6,7 +6,7 @@ from datetime import datetime
 from . import qosDb
 from .threadMqConsumers import MqConsumers
 from . import timeDB
-
+import re
 
 timeStampFormat="%Y%m%d%H%M%S"
 matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
@@ -478,7 +478,7 @@ def useOldParameters(vTasksToPoll, oldTasks):
                 task['parentkey'] = oldTasks[taskKey]['parentkey']
 
 
-def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec):
+def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec,serverDB,serverName,vServerErrors):
 
     # extended error check and task markup for heartbeat tasks.
     def markHeartBeatTask(task):
@@ -538,6 +538,44 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     task['error']="оповестить если " + aKey
                     return
     # end sub
+    
+    #check that qos task is paused by schedule 
+    def checkTaskPaused(taskKey,taskData,channelSchedule):
+        agentKey=taskData['agentKey']
+        agentDict=channelSchedule.get(agentKey,False)
+        # agentDict is absent or false
+        if not agentDict:
+            return False
+
+        # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
+        s=re.search("^.*\.(\d*)$",taskKey)
+        if s is None:
+            return False
+        channelNumber=int(s.group(1))
+
+        # channel absent in schedule
+        if channelNumber not in agentDict.keys():
+            return False
+        else:
+            # "not active" is "paused" 
+            return not agentDict[channelNumber]
+    #end sub
+
+    # request qos db for channel status. Which chnnels are actve now and which are not
+    channelSchedule={}
+    if serverDB:
+        try:
+            # zapas is seconds count after channel becomes active and before it becomes inactive
+            # in "zapas" period channelSchedule still retutns active=false (in really it already=true)
+            # zapas is used to prevent fake alarms at schedule intervals borders
+            zapas=pollingPeriodSec
+            # get channel schedule from qos db like {agent:{1:True,3:True, 5:False}}
+            # where agent - agentkey
+            # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
+            # bool - is task scheduled to run in specified timestamp (true) or scheduled to be paused (false)
+            channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
+        except Exception as e:
+            vServerErrors += formatErrors([str(e)], serverName, "channelSchedule")
 
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
@@ -546,15 +584,18 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     # common task markup. status of data recieve
     for taskKey, task in tasksToPoll.items():
         if not task.get('enabled',True):
+            # task is disabled (for heartbeat tasks)
             task['style'] = 'ign'
-        else:
-            if task.get('timeStamp', None) is None:
-                # if task is absent in previous poll - then not mark it as error
-                if taskKey in oldTasks.keys():
-                    task['error'] = "задача не присылает данные"
-                else:
-                    task['style'] = 'ign'
-        # endif task enabled
+        elif (task.get('module',None)!='heartbeat') and channelSchedule and checkTaskPaused(taskKey,task,channelSchedule):
+            # task is paused by schedule (for qos tasks)
+            task['style'] = 'ign'
+            task['enabled']=False
+        elif task.get('timeStamp', None) is None:
+            # if task is absent in previous poll - then not mark it as error
+            if taskKey in oldTasks.keys():
+                task['error'] = "задача не присылает данные"
+            else:
+                task['style'] = 'ign'
     # endfor
 
     # common task markup. idle time
@@ -585,6 +626,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         error=task.get('error',None)
         if (error is not None):
             task['style'] = 'rem'
+
 
 # create box for every agent (controlblock)
 # agents like {agent:[tasks]}

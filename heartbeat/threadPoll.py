@@ -61,11 +61,12 @@ def threadPoll():
             #get tasks for heartbeat agent from app DB. All such tasks has "module":"heartbeat"
             hbTasks=TaskSets.getHeartbeatTasks(server,opt['pollingPeriodSec'])
 
-            if mqConf and tasksToPoll:
+            if mqConf and (tasksToPoll or hbTasks):
 
                 # if some tasksToPoll name found in alias list - rename such task to hostname, that owns alias
                 # in this case box of such taskToPoll will be merged into host's box
-                subs.applyHostAliases(hostAliases,server.name,tasksToPoll)
+                if tasksToPoll:
+                    subs.applyHostAliases(hostAliases,server.name,tasksToPoll)
 
                 # add heartbeat tasks to taskstopoll.
                 tasksToPoll.update(hbTasks)
@@ -96,7 +97,7 @@ def threadPoll():
                 # heartbeatAgent.processHeartBeatTasks(tasksToPoll)
 
             # use some parameters from oldTasks if it absent in taskstopoll
-            subs.useOldParameters(tasksToPoll, oldTasks)            
+            subs.useOldParameters(tasksToPoll, oldTasks)
 
             # add "style" field to tasksToPoll
             # style == "rem" - error presents (red)
@@ -107,7 +108,10 @@ def threadPoll():
                 oldTasks,
                 pollStartTimeStamp,
                 threadPoll.appStartTimeStamp,
-                opt['pollingPeriodSec'])
+                opt['pollingPeriodSec'],
+                serverDb,
+                server.name,
+                serverErrors)
 
             # dublicate task alarms to qos gui
             if server.qosguialarm and serverDb and mqConf:

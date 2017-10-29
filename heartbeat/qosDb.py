@@ -43,7 +43,7 @@ def getTasks(dbConnection):
     error = None
     result = {}
 
-    sql = """select magent.entity_key as "agentkey",
+    sql = """SELECT magent.entity_key as "agentkey",
     magent.displayname as "agentname",
     magenttask.entity_key as "taskkey",
     magenttask.displayname as "displayname",
@@ -81,7 +81,7 @@ def getOriginatorIdForAlertType(dbConnection, alertType):
     if not re.match("^[_A-Za-zа-яА-Я0-9/./-]+$", alertType):
         return ("Неверно задан тип аварийного сообщения, проверьте настройку qosAlertType", None)
 
-    sql = """select gp.id from mgrouppolicy as "gp",malerttype as "al" where
+    sql = """SELECT gp.id from mgrouppolicy as "gp",malerttype as "al" where
             gp.state!='DELETED' and
             gp.alerttype_id=al.id and
             al.name='{0}'
@@ -99,3 +99,49 @@ def getOriginatorIdForAlertType(dbConnection, alertType):
 
     except Exception as e:
         return(str(e), None)
+
+
+# check wich channels are scheduled to run in specified time and which are scheduled to be paused
+# returns dict like {agent:{1:True,3:True, 5:False}}
+# where agent - agentkey
+# number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
+# bool - is task scheduled to run in specified timestamp or scheduled to be paused
+def getChannelScheduleStatus(dbConnection,timeStamp,zapas):
+    
+    # check that db schema supports task schedule feature 
+    sql="""
+        SELECT EXISTS (
+           SELECT 1
+           FROM information_schema.tables 
+           WHERE table_name = 'task'
+        );
+    """
+    cur = dbConnection.cursor()
+    cur.execute(sql)
+    rows = cur.fetchall()
+    
+    # table "task" not exists in db, so schedule feature is not supported
+    if rows[0][0]!= True :
+        return {}
+
+    sql="""
+        SELECT 
+        agent.entity_key as "agentkey",
+        task.channel_id as "channelid", 
+        bool_or({0}>sc.begin_time and {1}<sc.end_time) as "channelactive"
+        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent"
+        WHERE task.probe_id=agent.id and sc.task_id=task.id
+        GROUP BY agent.entity_key, task.channel_id
+    """.format(str(timeStamp-zapas),str(timeStamp+zapas))
+    
+    cur = dbConnection.cursor()
+    cur.execute(sql)
+    rows = cur.fetchall()
+
+    res={}
+    for row in rows:
+        agentDict=res.setdefault(row[0],{})
+        agentDict.update({row[1]:row[2]})
+
+    # print(res)
+    return res

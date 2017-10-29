@@ -576,7 +576,6 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors += formatErrors([str(e)], serverName, "channelSchedule")
-    channelSchedule={}
 
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():

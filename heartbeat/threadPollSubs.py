@@ -461,6 +461,8 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
 def useOldParameters(vTasksToPoll, oldTasks):
     for taskKey, task in vTasksToPoll.items():
         if taskKey in oldTasks.keys():
+            if 'taskStartTimeStamp' not in task.keys() and ('taskStartTimeStamp' in oldTasks[taskKey].keys()):
+                task['taskStartTimeStamp'] = oldTasks[taskKey]['taskStartTimeStamp']
             if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
                 
@@ -576,6 +578,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors += formatErrors([str(e)], serverName, "channelSchedule")
+    channelSchedule={}
 
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
@@ -590,23 +593,27 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             # task is paused by schedule (for qos tasks)
             task['style'] = 'ign'
             task['enabled']=False
-        elif task.get('timeStamp', None) is None:
+        elif task.get('taskStartTimeStamp', None) is None:
             # when data not received - set current timestamp as start point
             # this timestamp will be used for idle time calculation for task
-            task['timeStamp']=datetime.utcnow()
-            # old version of this block
-            # # if task is absent in previous poll - then not mark it as error
-            # if taskKey in oldTasks.keys():
-            #     task['error'] = "задача не присылает данные"
-            # else:
-            #     task['style'] = 'ign'
+            # this command will be executed only once for very task
+            task['taskStartTimeStamp']=datetime.utcnow()
     # endfor
 
     # common task markup. idle time
     for task in tasksToPoll.values():
         if task.get('style',None) is None:
-            if "timeStamp" in task.keys():
-                idleTime = datetime.utcnow() - task['timeStamp']
+            
+            # last data received timestamp
+            timeStamp=task.get('timeStamp',False)
+            
+            # data not received. Use task first run time
+            # taskStartTimeStamp will not be shown in GUI
+            if not timeStamp:
+                timeStamp=task.get('taskStartTimeStamp',False)
+            
+            if timeStamp:
+                idleTime = datetime.utcnow() - timeStamp
                 idleTime = idleTime.days * 86400 + idleTime.seconds
 
                 if abs(idleTime) > \

@@ -576,6 +576,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors += formatErrors([str(e)], serverName, "channelSchedule")
+    channelSchedule={}
 
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
@@ -591,11 +592,15 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             task['style'] = 'ign'
             task['enabled']=False
         elif task.get('timeStamp', None) is None:
-            # if task is absent in previous poll - then not mark it as error
-            if taskKey in oldTasks.keys():
-                task['error'] = "задача не присылает данные"
-            else:
-                task['style'] = 'ign'
+            # when data not received - set current timestamp as start point
+            # this timestamp will be used for idle time calculation for task
+            task['timeStamp']=datetime.utcnow()
+            # old version of this block
+            # # if task is absent in previous poll - then not mark it as error
+            # if taskKey in oldTasks.keys():
+            #     task['error'] = "задача не присылает данные"
+            # else:
+            #     task['style'] = 'ign'
     # endfor
 
     # common task markup. idle time
@@ -606,7 +611,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 idleTime = idleTime.days * 86400 + idleTime.seconds
 
                 if abs(idleTime) > \
-                        6 * max(task['period'], pollingPeriodSec):
+                        3 * max(task['period'], pollingPeriodSec):
                     if task.get('error',None) is None:
                         task['error'] = 'задача не присылает данные длительное время'
     #end for

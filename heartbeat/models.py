@@ -241,11 +241,11 @@ class Hosts(models.Model):
 
             singleServerEnabled=res.setdefault(server,{})
 
-            oldValue = singleServerEnabled.get(hostName,True)
+            oldValue = singleServerEnabled.get(hostName,False)
             newValue = hostEnabled
 
-            # all hosts with such name must be enabled for it return enabled
-            singleServerEnabled[hostName]= oldValue and newValue
+            # all hosts with such name must be disabled for it return disabled
+            singleServerEnabled[hostName]= oldValue or newValue
 
         return res
 

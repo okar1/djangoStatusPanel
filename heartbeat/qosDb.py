@@ -129,8 +129,9 @@ def getChannelScheduleStatus(dbConnection,timeStamp,zapas):
         agent.entity_key as "agentkey",
         task.channel_id as "channelid", 
         bool_or({0}>sc.begin_time and {1}<sc.end_time) as "channelactive"
-        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent"
-        WHERE task.probe_id=agent.id and sc.task_id=task.id
+        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices"
+        WHERE task.probe_id=agent.id and sc.task_id=task.id and task.device_id=devices.id
+        and devices.type != 'MATCH'
         GROUP BY agent.entity_key, task.channel_id
     """.format(str(timeStamp-zapas),str(timeStamp+zapas))
     

@@ -366,6 +366,8 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
                     # if timeStamp is not None:
                     #     vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], matchTimeStampFormat)
 
+            elif msgType ==  'com.tecomgroup.qos.communication.message.TaskStatus':
+                pass
             elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
                 if len(mData['TSStructure']) > 0:
                     vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(mData['timestamp'], timeStampFormat)

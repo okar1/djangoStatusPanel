@@ -4,6 +4,7 @@ import pika
 import time
 from datetime import datetime
 from . import qosDb
+from . import models
 from .threadMqConsumers import MqConsumers
 from . import timeDB
 import re
@@ -541,45 +542,6 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     return
     # end sub
     
-    #check that qos task is paused by schedule 
-    def checkTaskPaused(taskKey,taskData,channelSchedule):
-        agentKey=taskData['agentKey']
-        agentDict=channelSchedule.get(agentKey,False)
-        # agentDict is absent or false
-        if not agentDict:
-            return False
-
-        # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
-        s=re.search("^.*\.(\d*)$",taskKey)
-        if s is None:
-            return False
-        channelNumber=int(s.group(1))
-
-        # channel absent in schedule
-        if channelNumber not in agentDict.keys():
-            return False
-        else:
-            # "not active" is "paused" 
-            return not agentDict[channelNumber]
-    #end sub
-
-    # request qos db for channel status. Which chnnels are actve now and which are not
-    channelSchedule={}
-    if serverDB:
-        try:
-            # zapas is seconds count after channel becomes active and before it becomes inactive
-            # in "zapas" period channelSchedule still retutns active=false (in really it already=true)
-            # zapas is used to prevent fake alarms at schedule intervals borders
-            zapas=pollingPeriodSec
-            # get channel schedule from qos db like {agent:{1:True,3:True, 5:False}}
-            # where agent - agentkey
-            # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
-            # bool - is task scheduled to run in specified timestamp (true) or scheduled to be paused (false)
-            channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
-        except Exception as e:
-            vServerErrors += formatErrors([str(e)], serverName, "channelSchedule")
-    # channelSchedule={}
-
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
@@ -587,12 +549,8 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     # common task markup. status of data recieve
     for taskKey, task in tasksToPoll.items():
         if not task.get('enabled',True):
-            # task is disabled (for heartbeat tasks)
+            # task is disabled
             task['style'] = 'ign'
-        elif (task.get('module',None)!='heartbeat') and channelSchedule and checkTaskPaused(taskKey,task,channelSchedule):
-            # task is paused by schedule (for qos tasks)
-            task['style'] = 'ign'
-            task['enabled']=False
         elif task.get('taskStartTimeStamp', None) is None:
             # when data not received - set current timestamp as start point
             # this timestamp will be used for idle time calculation for task
@@ -861,8 +819,8 @@ def commitPollResult(tasksToPoll, serverName, vServerErrors, timeDbConfig,vPollR
 # in this case box of such taskToPoll will be merged into host's box.
 # aliases like {server:{host:{aliases set},host2:{aliases set}},server2:...}
  # tasksToPoll like {taskKey: {"agentKey":"aaa", "itemName:" "period":10} }}
-def applyHostAliases(allServerAliases,serverName,vTasks):
-    allHostAliases=allServerAliases.get(serverName,{})
+def applyHostAliases(allServerAliases,server,vTasks):
+    allHostAliases=allServerAliases.get(server.name,{})
     for task in vTasks.values():
 
         for hostName,aliases in allHostAliases.items():
@@ -871,3 +829,47 @@ def applyHostAliases(allServerAliases,serverName,vTasks):
                 task['agentName']=hostName
                 break
 
+
+# qos tasks are marked as disabled in case:
+# * task is presents in qos task schedule and now is paused
+# * task is placed inside existing heartbeat host, that is disabled
+def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTimeStamp,serverName,vTasksToPoll,vServerErrors):
+
+    # request qos db for channel status. Which chnnels are actve now and which are not
+    channelSchedule={}
+    if serverDB:
+        try:
+            # zapas is seconds count after channel becomes active and before it becomes inactive
+            # in "zapas" period channelSchedule still retutns active=false (in really it already=true)
+            # zapas is used to prevent fake alarms at schedule intervals borders
+            zapas=pollingPeriodSec
+            # get channel schedule from qos db like {agent:{1:True,3:True, 5:False}}
+            # where agent - agentkey
+            # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
+            # bool - is task scheduled to run in specified timestamp (true) or scheduled to be paused (false)
+            channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
+        except Exception as e:
+            vServerErrors += formatErrors([str(e)], serverName, "channelSchedule")
+
+    hostsEnabled=allServerHostEnabled.get(serverName,{})
+
+    for taskKey,taskData in vTasksToPoll.items():
+        # check that task is placed inside existing heartbeat host, that is disabled
+        if hostsEnabled.get(taskData['agentName'],True)==False:
+            taskData['enabled']=False
+            continue
+
+        #check that qos task is paused by schedule 
+        agentKey=taskData['agentKey']
+        agentDict=channelSchedule.get(agentKey,False)
+        # agentDict is presents and not empty
+        if agentDict:
+            # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
+            s=re.search("^.*\.(\d*)$",taskKey)
+            if s:
+                channelNumber=int(s.group(1))
+                # channel present in schedule
+                if channelNumber in agentDict.keys():
+                    if agentDict[channelNumber]==False:
+                        taskData['enabled']=False
+                        continue

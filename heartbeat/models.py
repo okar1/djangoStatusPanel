@@ -184,10 +184,7 @@ class Hosts(models.Model):
                 'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку')
     server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True,
         help_text="Сервер, к которому будет относиться плитка")
-    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True,
-        help_text="Будут ли на этот узел отправлены задания для heartbeat agent.</br>"+
-                  "Также должны быть включены соответствующие элементы данных и задачи сбора данных</br>"+
-                  "Настройка не влияет на qos-задачи на этом узле" )
+    enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
     config = models.TextField(null=False, blank=True, default="",
         help_text="Настройки узла в формате JSON. Дополняют настройки элементов данных, работающих на этом узле</br>"+
                     r'Например: {"item":"fanSpeed","resultcount":5} добавит опцию resultсоunt к элементу данных fanSpeed на этом узле')
@@ -222,18 +219,33 @@ class Hosts(models.Model):
             server=host.server.name
             hostName=host.name
             
-            singleServerAliases=res.get(server,{})
-            res[server]=singleServerAliases
-
+            singleServerAliases=res.setdefault(server,{})
             aliasesStr=host.aliases.replace('\r','')
             
-            oldValue = singleServerAliases.get(hostName,None)
+            oldValue = singleServerAliases.get(hostName,set())
             newValue = set(filter(lambda x: x != '' , aliasesStr.split('\n')))
-            if oldValue is not None:
-                # set union
-                singleServerAliases[hostName]=oldValue | newValue
-            else:
-                singleServerAliases[hostName]=newValue
+            # set union
+            singleServerAliases[hostName]= oldValue | newValue
+
+        return res
+
+
+    # returns hosts enabled status like  {server:{"host with some name":True}}
+    def getEnabled():
+        res={}
+        hosts=Hosts.objects.all()
+        for host in hosts:
+            server=host.server.name
+            hostName=host.name
+            hostEnabled=host.enabled
+
+            singleServerEnabled=res.setdefault(server,{})
+
+            oldValue = singleServerEnabled.get(hostName,True)
+            newValue = hostEnabled
+
+            # all hosts with such name must be enabled for it return enabled
+            singleServerEnabled[hostName]= oldValue and newValue
 
         return res
 

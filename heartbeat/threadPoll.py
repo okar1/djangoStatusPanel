@@ -31,6 +31,8 @@ def threadPoll():
         pollResult = []
         pollStartTimeStamp = int(time.time())
         hostAliases=Hosts.getAllAliases()
+        hostEnabled=Hosts.getEnabled()
+
 
         #debug
         if isTestEnv:
@@ -63,10 +65,17 @@ def threadPoll():
 
             if mqConf and (tasksToPoll or hbTasks):
 
-                # if some tasksToPoll name found in alias list - rename such task to hostname, that owns alias
-                # in this case box of such taskToPoll will be merged into host's box
                 if tasksToPoll:
-                    subs.applyHostAliases(hostAliases,server.name,tasksToPoll)
+
+                    # hb tasks can be enabled or disabled in admin panel
+                    # qos tasks are marked as disabled in cases:
+                    # * task is presents in qos task schedule and now is paused
+                    # * task is placed inside existing heartbeat host, that is disabled
+                    subs.disableQosTasks(hostEnabled,serverDb,opt['pollingPeriodSec'],pollStartTimeStamp,server.name,tasksToPoll,serverErrors)
+
+                    # if some tasksToPoll name found in alias list - rename such task to hostname, that owns alias
+                    # in this case box of such taskToPoll will be merged into host's box
+                    subs.applyHostAliases(hostAliases,server,tasksToPoll)
 
                 # add heartbeat tasks to taskstopoll.
                 tasksToPoll.update(hbTasks)

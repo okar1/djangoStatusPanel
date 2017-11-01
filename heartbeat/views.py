@@ -199,39 +199,35 @@ class MainView(BoxFormView):
             else:
                 name= "{0} ({1}".format(taskKey, task['itemName'])
 
-            alarms=task.get('alarms',{})
-            # if 'pattern' not in keys - return taskkey and *, so re.search allways wil be none
-            alarmsCount=sum([True for alarmData in alarms.values() if re.search(alarmData.get('pattern',taskKey+"*"),taskKey) is not None])
-            if alarmsCount>0:
-                name+= " +"+str(alarmsCount)+" alarm"
+                alarms=task.get('alarms',{})
+                # if 'pattern' not in keys - return taskkey and *, so re.search allways wil be none
+                alarmsCount=sum([True for alarmData in alarms.values() if re.search(alarmData.get('pattern',taskKey+"*"),taskKey) is not None])
+                if alarmsCount>0:
+                    name+= " +"+str(alarmsCount)+" alarm"
 
-            name+=")"
+                name+=")"
 
             if not task.get('enabled',True):
-                name += " : Задача отключена"
-            else:
-                if task.get('timeStamp', None) is None:
-                    # when error - this tex already present in error message
-                    # so no need to dublicate it
-                    if task.get('style',None)!='rem':
-                        name += " : задача не присылает данные"
-                else:
-                    idleTime = datetime.utcnow() - task['timeStamp']
-                    idleTime = idleTime.days * 86400 + idleTime.seconds
-                    name+=(" : "+secondsCountToHumanString(idleTime)+" назад")
+                name += " : Задача отключена "
 
-                if (task.get('value',None) is not None): # and (task.get('error',None) is None):
-                    # not display a value in case of error
-                    name += (" получено значение " + formatValue(task['value']))
+            if 'timeStamp' in task.keys():
+                idleTime = datetime.utcnow() - task['timeStamp']
+                idleTime = idleTime.days * 86400 + idleTime.seconds
+                name+=(" : "+secondsCountToHumanString(idleTime)+" назад")
 
-                    unit=task.get('unit','')
-                    if unit !='':
-                        name += (" "+unit)
-                # end if
+            if 'value' in task.keys(): # and (task.get('error',None) is None):
+                # not display a value in case of error
+                name += (" получено значение " + formatValue(task['value']))
 
-                error=task.get('error',None)
-                if (error is not None):
-                    name += (" : Ошибка: " + error)
+                unit=task.get('unit','')
+                if unit !='':
+                    name += (" "+unit)
+            # end if
+
+            error=task.get('error',None)
+            if (error is not None):
+                name += (" : Ошибка: " + error)
+            
             return name
         #end sub
 

@@ -4,7 +4,6 @@ import pika
 import time
 from datetime import datetime
 from . import qosDb
-from . import models
 from .threadMqConsumers import MqConsumers
 from . import timeDB
 import re
@@ -214,15 +213,20 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
     return errors
 
 
-def formatErrors(errors, serverName, pollName):
-    return [{
-        'id': serverName + '.' + pollName + '.' + str(i),
-        'name': pollName + ": " + text,
-        'error': text,
-        'style': 'rem',
-        # this is error message from server, not an actual task
-        'servertask':True} 
-        for i, text in enumerate(errors)]
+def formatErrors(errors, serverName, pollName,delayedError=False):
+    # dellayed error will not be shown as error in current pollresult
+    # it appears only if repeated in next pollresult
+    return {serverName + '.' + pollName + '.' + str(i) :
+                {
+                'name': pollName + ": " + text,
+                'error': text,
+                # 'style': 'ign' if delayedError else 'rem',
+                'enabled':not delayedError,
+                # this is error message from server, not an actual task
+                'servertask':True
+                }
+                for i, text in enumerate(errors)
+            }
 
 
 # dbConfig -> (dbConnection,tasksToPoll)
@@ -263,7 +267,7 @@ def pollDb(dbConfig, serverName, vServerErrors,oldTasks):
         else:
             errors.add(e)
     # endif
-    vServerErrors += formatErrors(errors, serverName, pollName)
+    vServerErrors.update(formatErrors(errors, serverName, pollName))
     
     # if connection to qos db is lost - use last received from qos db tasks
     # heartbeat tasks are excluded, because they are loaded from local db, not qos db. 
@@ -295,19 +299,20 @@ def getMqConf(mqConfig,serverName,vServerErrors):
                 con.close()
     # endfor
 
-    vServerErrors += formatErrors(errors, serverName, pollName)
+    vServerErrors.update(formatErrors(errors, serverName, pollName))
     return res
 
 
 def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
     pollName = "RabbitMQ"
     errors = set()
+    delayedErrors = set()
 
     try:
         mqMessages = MqConsumers.popConsumerMessages(mqConsumerId)
     except Exception as e:
         errors.add(str(e))
-        vServerErrors += formatErrors(errors, serverName, pollName)
+        vServerErrors.update(formatErrors(errors, serverName, pollName))
         return
 
     # print("**************************",mqConsumerId)
@@ -344,7 +349,7 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
             taskKey = mData['taskKey']
 
             if taskKey not in vTasksToPoll.keys():
-                errors.add("Задача " + taskKey + " не зарегистрирована в БД")
+                delayedErrors.add("Задача " + taskKey + " не зарегистрирована в БД")
                 continue
 
             if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
@@ -380,15 +385,16 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
             continue
 
     # endfor
-
-    vServerErrors += formatErrors(errors, serverName, pollName)
+        
+    vServerErrors.update(formatErrors(errors, serverName, pollName))
+    vServerErrors.update(formatErrors(delayedErrors, serverName, 'RabbitMqTaskNotInDB',delayedError=True))
 
 
 # send heartbeat tasks request to rabbitmq exchange
 def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
     errors=sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
-    serverErrors += formatErrors(errors, serverName, "hbSender")
+    serverErrors.update(formatErrors(errors, serverName, "hbSender"))
     con.close()
 
 
@@ -396,7 +402,7 @@ def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
 def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
     errors=receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
-    serverErrors += formatErrors(errors, serverName, "hbReceiver")
+    serverErrors.update(formatErrors(errors, serverName, "hbReceiver"))
     con.close()
 
     # process composite heartbeat tasks decomposing
@@ -510,7 +516,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         #end if
 
         # check that task received a value
-        if (task.get('value',None) is None) and (task.get('error',None) is None):
+        if (task.get('value',None) is None) and (task.get('error',None) is None) and (task.get('enabled',True)):
             task['error']="Значение не вычислено"
             return
 
@@ -547,6 +553,12 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     # remove all markups if exists
     for taskKey, task in tasksToPoll.items():
         task.pop('style', None)
+
+        # since task is disabled - remove timestamp and value to prevent including it in oldTasks
+        # in this case alarm will not fired imidiately when task will became enabled in future
+        if task.get('enabled',True)==False:
+            task.pop('timeStamp',None)
+            task.pop('value',None)
 
     # common task markup. status of data recieve
     for taskKey, task in tasksToPoll.items():
@@ -602,7 +614,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 # create box for every agent (controlblock)
 # agents like {agent:[tasks]}
 # taskstopoll -> pollResult
-def makePollResult(tasksToPoll, serverName, serverErrors):
+def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
     pollResult=[]
     agents = {}
     agentHasErrors = set()
@@ -643,16 +655,50 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
 
             curTasks += [taskData]
 
+    # remove from delayedservererrors items that not in serverErrors
+    delayedServerErrors &= set(serverErrors.keys())
+
     # add box with server errors to pollresult
     if len(serverErrors) > 0:
-        pollResult += [{
-            "id": serverName,
-            "name": serverName,
-            "pollServer": serverName,
-            "error": "Ошибки при опросе сервера " + serverName,
-            "servertask":True,
-            "data": serverErrors,
-            }]
+        def _justIsolateLocalVars():
+            nonlocal delayedServerErrors
+
+            tmp=[]
+            hasNotDelayerErrors=False
+            for errorId,error in serverErrors.items():
+                
+                # if task is disabled (delayed)
+                if not error.get('enabled',True):
+                    # but was added to delayed early
+                    if errorId in delayedServerErrors:
+                        # mark it enabled to fire server alarm
+                        error['enabled']=True
+                    # in any case - add to delayed to alarm was fired at next poll
+                    delayedServerErrors.add(errorId)
+                    
+                if error.get('enabled',True):
+                    hasNotDelayerErrors=True
+
+                error.update({
+                    'id':errorId,
+                    'style': 'rem' if error.get('enabled',True) else 'ign',
+                    })
+                tmp+=[error]
+            #end for
+            res={
+                "id": serverName,
+                "name": serverName,
+                "pollServer": serverName,
+                "servertask":True,
+                "data": tmp,
+            }
+            if hasNotDelayerErrors:
+                res.update({"error": "Ошибки при опросе сервера " + serverName})
+            return res
+        # end sub
+
+        pollResult += [_justIsolateLocalVars()]
+    # endif len(serverErrors)
 
     # add agents with errors to pollresult
     resultWithErrors = [{
@@ -698,7 +744,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors):
 def pollResultSort(vPollResult):
     # sort pollresults like servername & boxname, make boxes with errors first
     # also look views.py/makeBoxCaption for box caption rule
-    vPollResult.sort(key=lambda v: ("0" if v.get("servertask",False) else
+    vPollResult.sort(key=lambda v: ("0" if v.get("servertask",False) and "error" in v.keys() else
                                     "1" if "error" in v.keys() else
                                     "2") + v['pollServer']+" "+v['name'])
 
@@ -798,7 +844,7 @@ def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqConf, opt, vServe
     else:
         errors.add(e)
 
-    vServerErrors += formatErrors(errors, serverName, pollName)
+    vServerErrors.update(formatErrors(errors, serverName, pollName))
 
 # commit pollResult in external time database
 # pollResult can can be changed in case of registartion error during commit
@@ -809,7 +855,7 @@ def commitPollResult(tasksToPoll, serverName, vServerErrors, timeDbConfig,vPollR
 
     if errors:
         # on commit execption - add error message to serverErrors
-        vServerErrors+=formatErrors(errors, serverName, pollName)
+        vServerErrors.update(formatErrors(errors, serverName, pollName))
         # now vPollResult = [], but object reference is the same
         vPollResult*=0 
         # rebuild pollResult again with new serverErrors
@@ -851,7 +897,7 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             # bool - is task scheduled to run in specified timestamp (true) or scheduled to be paused (false)
             channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
-            vServerErrors += formatErrors([str(e)], serverName, "channelSchedule")
+            vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
 
     hostsEnabled=allServerHostEnabled.get(serverName,{})
 

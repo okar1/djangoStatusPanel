@@ -23,7 +23,8 @@ def threadPoll():
 
     # pythoncom.CoInitialize()    
     print('started Heartbeat thread')
-
+    delayedServerErrors={}
+    
     while True:
         opt = Options.getOptionsObject()
         # pollResult like [{"id":boxId, "name":BoxName, "error":someErrorText,
@@ -32,7 +33,7 @@ def threadPoll():
         pollStartTimeStamp = int(time.time())
         hostAliases=Hosts.getAllAliases()
         hostEnabled=Hosts.getEnabled()
-
+        # delayedServerErrors like {server:[{delayedErrorsForThisServer}]}
 
         #debug
         if isTestEnv:
@@ -41,7 +42,7 @@ def threadPoll():
 
         for server in Servers.objects.all():
             serverConfig = server.getConfigObject()
-            serverErrors = []
+            serverErrors = {}
             tasksToPoll = None
             # connection to database
             serverDb = None
@@ -135,7 +136,7 @@ def threadPoll():
 
             # tasksToPoll,serverErrors -> serverPollResult
             # grouping tasks to boxes by agentKey, also create +1 box for server errors
-            serverPollResult=subs.makePollResult(tasksToPoll, server.name, serverErrors)
+            serverPollResult=subs.makePollResult(tasksToPoll, server.name, serverErrors,delayedServerErrors.setdefault(server.name,set()))
             
             # commit poll results of current server to timeDB (now it is influxDB)
             subs.commitPollResult(tasksToPoll, server.name, serverErrors, serverConfig['timeDB'], serverPollResult)

@@ -110,7 +110,7 @@ presets={
             .*?
             State:\s*(\w*) # State: <some spaces> Normal
             .*?
-            --DISKS\ IN\ VOLUME # include it in search to find next volume asn skip disks
+            --DISKS\ IN\ VOLUME # include it in search to find next volume and skip disks
         """]},
 }
 
@@ -175,7 +175,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
         else:
             timeStamp=task['timeStamp']
             # filter fields for sending agent --> server
-            msgBody={k:v for k,v in task.items() if k in ['value','alarmsfired']}
+            msgBody={k:v for k,v in task.items() if k in ['value',]}
             
         msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
                     'protocolversion':agentProtocolVersion}
@@ -284,7 +284,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             error=headers.get('error',None)
             
             # filter fields when reseiving at server side
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmsfired'] })
+            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value',] })
             tasksToPoll[taskKey]['unit']=taskUnit
             if error is not None:
                 tasksToPoll[taskKey]['error']=error
@@ -294,6 +294,47 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config',]  })
     # endfor messages in current request
     return errors
+
+
+# check that format contains mandatory parameters and that parameter types are correct
+# param like {"item": "formatName", "param1":param1value, "param2":"param2value"}
+# pattern like {"param1":{"type":dict,"mandatory":true}, "param2": ...}
+# if mandatory parameter absent - raise exception
+# if optional parameter absent - add to param "default" value or None
+# returns modified "param" value
+def checkParameters(param,pattern):
+    
+    param=param.copy()
+
+    #remove param items if absent in pattern
+    par2remove=set({k:None for k in param.keys() if k not in pattern.keys()})
+    for p2r in par2remove:
+        param.pop(p2r)
+
+    # check params
+    for paramKey,paramOpts in pattern.items():
+        isMandatory=paramOpts.get('mandatory',True)
+        if isMandatory and (paramKey not in param.keys()):
+            raise Exception("не указан параметр "+paramKey+" Проверьте настройки программы")
+        else:
+            # (mandatory and present) or (not mandatory)
+            paramValue=param.get(paramKey,None)
+            if paramValue is not None:
+                paramType=paramOpts['type']
+                # paramtype is list of types like [int, str, float, ...]
+                # and check OK if type of value is in this list
+                # or
+                # paramtype is type (like float)
+                # and check OK if type of value is equal it
+                if (type(paramType)==list and (type(paramValue) not in paramType)) or \
+                   (type(paramType)!=list and (type(paramValue)!=paramType)):
+                    raise Exception("тип параметра "+paramKey+" задан неверно. Проверьте настройки программы")                        
+            else:
+                # use default value if "default" key specified in pattern
+                defaultValue=paramOpts.get('default',None)
+                param[paramKey]=defaultValue
+    # param is modified in any case
+    return param
 
 
 def _snmpFormatValue(v):
@@ -526,275 +567,6 @@ def taskOhwTableValue(include):
         return res
 
 
-# convert v to float. Raise exception if impossible.
-# check +-inf and nan and raises exception
-def toFloat(v):
-    res=float(v)
-    if res!=res:
-        raise Exception("NaN values not supported")
-    if res==float("inf") or res==float("-inf"):
-        raise Exception("infinitive values not supported")
-    return res
-
-
-# format value or multivalue with formatter settings.
-# returns formatted result
-def formatValue(v,format):
-    # value is single and format is single
-    def _do1value1format(v,format):
-        
-        if v is None:
-            return None
-
-        if type(format) is not dict:
-           raise Exception("Проверьте настройки программы")
-        
-        item=format.get("item",None)
-
-        # convert to numeric value.
-        # optional parameter "decimalplaces" is supported (default is 0)
-        if item =="number":
-            params=checkParameters(format,{
-                "decimalplaces":{"type":int,
-                                 "mandatory":False}}
-            )
-            v=toFloat(v)
-            decPlaces=params['decimalplaces']
-            if decPlaces is not None:
-                v=round(v,decPlaces)
-        # convert to boolean value.
-        # optional lists [truevalues] and [falsevalues] are supported
-        # default value is returned if not found in truevalues and falsevales
-        elif item=="bool":
-            params=checkParameters(format,{
-                "truevalues":{"type":list,
-                              "mandatory":False},
-                "falsevalues":{"type":list,
-                               "mandatory":False},              
-                "default":{ "type":bool,
-                            "mandatory":False,
-                            "default":False},              
-                }
-            )
-
-            default=params['default']
-            trueValues=params['truevalues']
-            falseValues=params['falsevalues']
-
-            # both truevalues and falsevalues are specified
-            if (trueValues is None) and (falseValues is None):
-                trueValues=[1,'1',True,"true","True",'t','T',"y","Y"]
-                falseValues=[0,'0',False,'false','False','f','F','n',"N"]
-                if v in trueValues:
-                    v=True
-                elif v in falseValues:
-                    v=False
-                else:
-                    v=default
-            # only truevalues are specified. Default value will be ignored
-            elif trueValues is not None:
-                if v in trueValues:
-                    v=True
-                else:
-                    v=False
-            # only falsevalues are specified. Default value will be ignored
-            else:
-                if v in falseValues:
-                    v=False
-                else:
-                    v=True
-
-        # find and replace text in string value (regEx supported)
-        # mandatory strings "find" and "replace" must be specified
-        elif item=="replace":
-            params=checkParameters(format,{
-                "find":{"type":str,
-                        "mandatory":True},
-                "replace":{"type":str,
-                           "mandatory":True},
-                "ignorecase":{"type":bool,
-                           "mandatory":False,
-                           "default":False},
-                }
-            )
-            sFind=params['find']
-            sReplace=params['replace']
-            ignoreCase=params['ignorecase']
-            
-            if ignoreCase:
-                pattern=re.compile(sFind,re.IGNORECASE)
-            else:
-                pattern=re.compile(sFind)
-            if type(v)!=str:
-                v=str(v)
-
-            v=pattern.sub(sReplace,v)
-        # add number to number value.
-        # mandatory number "value" must be specified
-        elif item=="add":
-            params=checkParameters(format,{
-                "value":{"type":[int,float],
-                        "mandatory":True},
-                }
-            )
-            v=toFloat(v)+params['value']
-        # multiply number to number value.
-        # mandatory number "value" must be specified
-        elif item=="multiply":
-            params=checkParameters(format,{
-                "value":{"type":[int,float],
-                        "mandatory":True},
-                }
-            )
-            v=toFloat(v)*params['value']
-        # exclude tasks if got value from list specified.
-        elif item=="exclude":
-            params=checkParameters(format,{
-                "values":{"type":list,
-                        "mandatory":True},
-                }
-            )
-            if v in params['values']:
-                v=None
-        # true if python-true value received
-        elif item=="istrue":
-            # params=checkParameters(format,{
-            #     "values":{"type":list,
-            #             "mandatory":True},
-            #     }
-            # )
-            if v:
-                v=True
-            else:
-                v=False
-        elif item=="isfalse":
-            # params=checkParameters(format,{
-            #     "values":{"type":list,
-            #             "mandatory":True},
-            #     }
-            # )
-            if v:
-                v=False
-            else:
-                v=True
-        elif item==">" or item==">=" or item=="<" or item=="<=" or item=="=" or item=="!=":
-            params=checkParameters(format,{
-                "value":{"type":[int,float],
-                        "mandatory":True},
-                }
-            )
-            v2=params['value']
-            if item==">":
-                v=(v>v2)
-            elif item==">=":
-                v=(v>=v2)
-            elif item=="<":
-                v=(v<v2)
-            elif item=="<=":
-                v=(v<=v2)
-            elif item=="=":
-                v=(v==v2)
-            elif item=="!=":
-                v=(v!=v2)
-        else:
-            raise Exception("поле item не задано либо некорректно. Проверьте настройки программы")
-            
-        return v
-
-    # value is single
-    def _do1value(v,format):
-        
-        if type(format)!=list:
-            # format is {format}
-            return _do1value1format(v,format)
-        else:
-            # format is [{format1},{format2},...]
-            # let's apply formats turn by turn
-            for f in format:
-                v=_do1value1format(v,f)
-            return v
-
-    if type(v)==dict:
-        # for multitask value is dict.
-        # in this case let's format every value in dict
-        return {key:_do1value(value,format) for key,value in v.items()}
-    else:
-        return _do1value(v,format)
-    return v
-
-
-# check value for matching alarms patterns. 
-# returns alarmsfired structure like {alarmKey:True}
-# value is always true and used because set of only keys cannot be transfered via json
-def markAlarms(taskKey,value,alarms):
-    def markSingleTask(taskKey,value,alarms):
-        assert type(value) in [int, float,bool,str]
-
-        res={}
-        for aKey,aData in alarms.items():
-            # alarm pattern is suitable for this task, check that alarm condition is true
-            
-            if aData['pattern'].search(taskKey) is not None:
-                # alarm check rules and result format rules are processed by the same sub.
-                # if applying alarm rule to value gives something true
-                # (True, not zero, not empty string or dict etc) then alarm will be fired
-                if formatValue(value,aData):
-                    res.update({aKey:True})
-        return res
-
-    if type(value)==dict:
-        res={}
-        for k,v in value.items():
-            if v is not None:
-                tmp=markSingleTask(taskKey+"."+k, v, alarms)
-                if tmp:
-                    res.update({k:tmp})
-        return res
-    else:
-        return markSingleTask(taskKey,value,alarms)
-
-
-# check that format contains mandatory parameters and that parameter types are correct
-# param like {"item": "formatName", "param1":param1value, "param2":"param2value"}
-# pattern like {"param1":{"type":dict,"mandatory":true}, "param2": ...}
-# if mandatory parameter absent - raise exception
-# if optional parameter absent - add to param "default" value or None
-# returns modified "param" value
-def checkParameters(param,pattern):
-    
-    param=param.copy()
-
-    #remove param items if absent in pattern
-    par2remove=set({k:None for k in param.keys() if k not in pattern.keys()})
-    for p2r in par2remove:
-        param.pop(p2r)
-
-    # check params
-    for paramKey,paramOpts in pattern.items():
-        isMandatory=paramOpts.get('mandatory',True)
-        if isMandatory and (paramKey not in param.keys()):
-            raise Exception("не указан параметр "+paramKey+" Проверьте настройки программы")
-        else:
-            # (mandatory and present) or (not mandatory)
-            paramValue=param.get(paramKey,None)
-            if paramValue is not None:
-                paramType=paramOpts['type']
-                # paramtype is list of types like [int, str, float, ...]
-                # and check OK if type of value is in this list
-                # or
-                # paramtype is type (like float)
-                # and check OK if type of value is equal it
-                if (type(paramType)==list and (type(paramValue) not in paramType)) or \
-                   (type(paramType)!=list and (type(paramValue)!=paramType)):
-                    raise Exception("тип параметра "+paramKey+" задан неверно. Проверьте настройки программы")                        
-            else:
-                # use default value if "default" key specified in pattern
-                defaultValue=paramOpts.get('default',None)
-                param[paramKey]=defaultValue
-    # param is modified in any case
-    return param
-
-
 # parses string with every regex in include. Return key:value dict.
 # See taskShellTableValue description for more details
 # no error handling
@@ -907,126 +679,109 @@ def processHeartBeatTasks(tasksToPoll):
 
         if task.get('module',None)!='heartbeat':
             task['error']="Указано неверное имя модуля"
-        else:
-            taskConfig=task.get('config',None)
-            if taskConfig is None or type(taskConfig)!=dict:
-                task['error']="Не заданы настройки элемента данных"
+            continue
+
+        taskConfig=task.get('config',None)
+        if taskConfig is None or type(taskConfig)!=dict:
+            task['error']="Не заданы настройки элемента данных"
+            continue
+
+        item=taskConfig.get('item',None)
+
+        if item is None:
+            task['error']="В настройках элемента данных не задано значение item"
+            continue
+        
+        if item=="shell":
+            task['error']="Непосредственный запуск модуля shell запрещен в целях безопасности"
+            continue
+
+        # task['value']={"key1":"value1","key2":"value2"}
+        # task['unit']="кг/ам"
+
+        preset=presets.get(item,None)
+
+        # apply preset to taskConfig. Old taskConfig parameters has priority
+        # but some special reset parameters
+        if preset is not None:
+            preset=preset.copy()
+            
+            # remove items from taskConfig, that must be overriten by preset
+            taskConfig.pop('item',None)
+            if preset.get('item',None)=='shell':
+                # for security reasons passing external shell commands is not allowed
+                taskConfig.pop('command',None)
+            
+            preset.update(taskConfig)
+            taskConfig=preset
+            item=taskConfig['item']
+            preset=None
+
+        try:
+            if item=="ohwtable":
+                task['value']=taskOhwTableValue(**checkParameters(taskConfig,{
+                    "include":{ "type":list,
+                                "mandatory":True},
+                    }))
+            elif item=="snmptable":
+                task['value']=taskSnmpTableValue(**checkParameters(taskConfig,{
+                    "include":{ "type":list,
+                                "mandatory":False,
+                                "default":[".*"]},
+                    "oid":{ "type":str,
+                            "mandatory":True},
+                    "host":{    "type":str,
+                                "mandatory":False,
+                                "default":"127.0.0.1"},
+                    "port":{    "type":int,
+                                "mandatory":False,
+                                "default":161},
+                    "readcommunity":{   "type":str,
+                                        "mandatory":False,
+                                        "default":"public"},
+                    "indexcol":{    "type":int,
+                                    "mandatory":True},
+                    "datacol":{     "type":int,
+                                    "mandatory":True},
+                    }))
+            elif item=="shell":
+                task['value']=taskShellTableValue(**checkParameters(taskConfig,{
+                    "command":{ "type":str,
+                                "mandatory":True},
+                    "include":{ "type":list,
+                                "mandatory":False,
+                                "default":["(.*)"]},
+                    "utf8":{ "type":bool,
+                                "mandatory":False,
+                                "default":False},
+                    "timeout":{ "type":int,
+                                "mandatory":False,
+                                "default":None},
+
+                    }))
+
             else:
-                item=taskConfig.get('item',None)
+                raise Exception( "Неизвестный тип элемента данных: "+item)
+        except Exception as e:
+            traceback.print_exc(file=sys.stdout)
+            task['error']=str(e)
 
-                if item is None:
-                    task['error']="В настройках элемента данных не задано значение item"
-                elif item=="shell":
-                    task['error']="Непосредственный запуск модуля shell запрещен в целях безопасности"
-                else:
-                    # task['value']={"key1":"value1","key2":"value2"}
-                    # task['unit']="кг/ам"
+        # got a value, not got a error
+        if ('error' not in task.keys()) and ('value' in task.keys()):
+            value=task['value']
 
-                    preset=presets.get(item,None)
-
-                    # apply preset to taskConfig. Old taskConfig parameters has priority
-                    # but some special reset parameters
-                    if preset is not None:
-                        preset=preset.copy()
-                        
-                        # remove items from taskConfig, that must be overriten by preset
-                        taskConfig.pop('item',None)
-                        if preset.get('item',None)=='shell':
-                            # for security reasons passing external shell commands is not allowed
-                            taskConfig.pop('command',None)
-                        
-                        preset.update(taskConfig)
-                        taskConfig=preset
-                        item=taskConfig['item']
-                        preset=None
-
-                    try:
-                        if item=="ohwtable":
-                            task['value']=taskOhwTableValue(**checkParameters(taskConfig,{
-                                "include":{ "type":list,
-                                            "mandatory":True},
-                                }))
-                        elif item=="snmptable":
-                            task['value']=taskSnmpTableValue(**checkParameters(taskConfig,{
-                                "include":{ "type":list,
-                                            "mandatory":False,
-                                            "default":[".*"]},
-                                "oid":{ "type":str,
-                                        "mandatory":True},
-                                "host":{    "type":str,
-                                            "mandatory":False,
-                                            "default":"127.0.0.1"},
-                                "port":{    "type":int,
-                                            "mandatory":False,
-                                            "default":161},
-                                "readcommunity":{   "type":str,
-                                                    "mandatory":False,
-                                                    "default":"public"},
-                                "indexcol":{    "type":int,
-                                                "mandatory":True},
-                                "datacol":{     "type":int,
-                                                "mandatory":True},
-                                }))
-                        elif item=="shell":
-                            task['value']=taskShellTableValue(**checkParameters(taskConfig,{
-                                "command":{ "type":str,
-                                            "mandatory":True},
-                                "include":{ "type":list,
-                                            "mandatory":False,
-                                            "default":["(.*)"]},
-                                "utf8":{ "type":bool,
-                                            "mandatory":False,
-                                            "default":False},
-                                "timeout":{ "type":int,
-                                            "mandatory":False,
-                                            "default":None},
-
-                                }))
-
-                        else:
-                            raise Exception( "Неизвестный тип элемента данных: "+item)
-                    except Exception as e:
-                        traceback.print_exc(file=sys.stdout)
-                        task['error']=str(e)
-
-                    # got a value, not got a error
-                    if ('error' not in task.keys()) and ('value' in task.keys()):
-
-                        # formatting value
-                        if taskConfig.get("format",None) is not None:
-                            try:
-                                task['value']=formatValue(task['value'],taskConfig['format'])
-                            except Exception as e:
-                                traceback.print_exc(file=sys.stdout)
-                                task['error']="обработка результата: "+str(e)    
-                        
-                        value=task['value']
-                            
-                        # value is set, but equals none - remove such task
-                        if value is None:
-                            task2remove.add(taskKey)
-                        else:
-                            if type(value)==dict:
-                                # and for composite tasks - remove None results too
-                                task['value']={k:v for k,v in value.items() if v is not None}
-                                # not return empty composite tasks. Return  none instead
-                                if not task['value']:
-                                    task['value']=None
-                                    task2remove.add(taskKey)
-
-                        # alarms info is present and not empty
-                        if task['value'] is not None and taskConfig.get('alarms',None):
-                            try:
-                                alarms=taskConfig['alarms']
-                                
-                                # pre-compile regex patterns
-                                for alarm in alarms.values():
-                                    alarm['pattern']=re.compile(alarm['pattern'])
-                                task['alarmsfired']=markAlarms(taskKey, task['value'], alarms)
-                            except Exception as e:
-                                traceback.print_exc(file=sys.stdout)
-                                task['error']="обработка оповещений: "+str(e)    
-                            
+            # value is set, but equals none - remove such task
+            if value is None:
+                task2remove.add(taskKey)
+            else:
+                if type(value)==dict:
+                    # and for composite tasks - remove None results too
+                    task['value']={k:v for k,v in value.items() if v is not None}
+                    # not return empty composite tasks. Return  none instead
+                    if not task['value']:
+                        task['value']=None
+                        task2remove.add(taskKey)
+        # endif
 
         task.pop('config',None)
         print("")
@@ -1048,7 +803,7 @@ def agentStart():
     print("agent start")
     errors=set()
     tasksToPoll={}
-    mqAmqpConnection= getMqConnection(mqConf,errors,maxMsgTotal)
+    mqAmqpConnection=getMqConnection(mqConf,errors,maxMsgTotal)
     errors.update(receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue))
     processHeartBeatTasks(tasksToPoll)
     errors.update(sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange))

@@ -4,6 +4,7 @@ import pika
 import time
 from datetime import datetime
 from . import qosDb
+from . import heartbeatAgent
 from .threadMqConsumers import MqConsumers
 from . import timeDB
 import re
@@ -53,164 +54,6 @@ def sendRegisterMessage(server,routingKeys):
             body=json.dumps(msgBody).encode('UTF-8')
         )
     connection.close()
-
-
-
-def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
-    
-    errors=set()
-
-    if not mqAmqpConnection:
-        errors.add('Соединение с RabbitMQ не установлено')
-        return errors
-
-    channel = mqAmqpConnection.channel()
-
-    try:
-        channel.exchange_declare(exchange=sendToExchange, exchange_type='topic', durable=True)
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    for taskKey, task in tasksToPoll.items():
-        
-        msgRoutingKey=task['agentKey']        
-        if serverMode:
-            # process only heartbeat tasks
-            if task.get('module',None)!='heartbeat':
-                continue
-            # process only enabled tasks
-            if not task.get('enabled',False):
-                continue
-            # skip sending error tasks from server
-            if task.get('error',False):
-                continue
-            timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
-            
-            # filter fields for sending server --> agent
-            msgBody={k:v for k,v in task.items() if k in ['config',]}
-        else:
-            timeStamp=task['timeStamp']
-            # filter fields for sending agent --> server
-            msgBody={k:v for k,v in task.items() if k in ['value','alarmsfired']}
-            
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
-                    'protocolversion':agentProtocolVersion}
-
-        if "error" in task.keys():
-            msgHeaders['error']=task['error']
-
-        channel.basic_publish(
-            exchange=sendToExchange,
-            routing_key=msgRoutingKey,
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # make message persistent
-                content_type='application/json',
-                content_encoding='UTF-8',
-                priority=0,
-                expiration="86400000",
-                headers=msgHeaders),
-            body=json.dumps(msgBody).encode('UTF-8')
-        )
-    return errors
-
-
-def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
-
-    errors=set()
-
-    if not mqAmqpConnection:
-        errors.add('Соединение с RabbitMQ не установлено')
-        return errors
-
-    channel = mqAmqpConnection.channel()
-
-    try:
-        channel.queue_declare(queue=receiveFromQueue, durable=True,arguments={'x-message-ttl':1800000})
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    try:
-        channel.exchange_declare(exchange=receiveFromQueue, exchange_type='topic', durable=True)
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    try:
-        channel.queue_bind(queue=receiveFromQueue, exchange=receiveFromQueue, routing_key="#")
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    mqMessages = []
-    while True:
-        # connect and check errors (amqp)
-        getOk = None
-        try:
-            getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
-        except Exception as e:
-            errors.add(str(e))
-            continue
-        if getOk:
-            mqMessage=[getOk]+mqMessage
-            if mqMessage[1].content_type != 'application/json':
-                errors.add("Неверный тип данных " + mqMessage[0].content_type)
-                continue
-            mqMessages += [mqMessage]
-        else:
-            break
-    # endwhile messages in rabbit queue            
-
-    # now we have list of mqMessages
-    for msg in mqMessages:
-
-        try:
-            headers = msg[1].headers
-            taskKey=headers['key']
-            taskUnit=headers['unit']
-        except Exception as e:
-            errors.add("Ошибка обработки сообщения: неверный заголовок.")
-            continue
-
-        # parse message payload
-        try:
-            msgBody = json.loads((msg[2]).decode('utf-8'))
-            assert type(msgBody)==dict
-        except Exception as e:
-            errors.add("Ошибка обработки сообщения: неверное содержимое.")
-            continue
-        
-        if serverMode:            
-            if headers.get('protocolversion',0) < agentProtocolVersion:
-                errors.add('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
-                continue
-
-            if taskKey not in tasksToPoll.keys():
-                errors.add('Ошибка обработки сообщения: неверный ключ '+taskKey)
-                continue
-
-            try:
-                stringTimeStamp=headers['timestamp']
-                taskTimeStamp=datetime.strptime(stringTimeStamp, timeStampFormat)
-                tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
-            except Exception as e:
-                errors.add("Ошибка обработки сообщения: неверная метка времени.")
-                continue
-
-            error=headers.get('error',None)
-            
-            # filter fields when reseiving at server side
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmsfired'] })
-            tasksToPoll[taskKey]['unit']=taskUnit
-            if error is not None:
-                tasksToPoll[taskKey]['error']=error
-        else:
-            # filter fields when reseiving at agent side
-            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,'unit':taskUnit}
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config',]  })
-    # endfor messages in current request
-    return errors
 
 
 def formatErrors(errors, serverName, pollName,delayedError=False):
@@ -393,7 +236,7 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
 # send heartbeat tasks request to rabbitmq exchange
 def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
+    errors=heartbeatAgent.sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
     serverErrors.update(formatErrors(errors, serverName, "hbSender"))
     con.close()
 
@@ -401,7 +244,7 @@ def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
 # receive heartbeat tasks request from rabbitmq queue
 def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
+    errors=heartbeatAgent.receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
     serverErrors.update(formatErrors(errors, serverName, "hbReceiver"))
     con.close()
 
@@ -418,9 +261,6 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                 # decompose composite task to some simple tasks
                 value=task['value']
 
-                # remove alarm dict from task
-                alarmsFired=task.pop('alarmsfired',{})
-
                 if type(value)==dict:
 
                     for resultKey,resultValue in value.items():
@@ -431,18 +271,8 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                         childTask["parentkey"]=taskKey
                         childTask["value"]=resultValue
 
-                        # decompose alarm results to some simple tasks too
-                        childAlarmsFired=alarmsFired.get(resultKey,{})
-
-                        # alarmsFired set contains keys of alarms that fired during this poll
-                        childTask['alarmsfired']=set(childAlarmsFired.keys())
-
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
-                else:
-                    # alarmsFired set contains keys of alarms that fired during thiss poll
-                    task['alarmsfired']=set(alarmsFired.keys())
-                    
             else:
                 # hb value not received
                 # check if there are early decomposed (children) tasks in oldTasks with 
@@ -921,3 +751,269 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
                     if agentDict[channelNumber]==False:
                         taskData['enabled']=False
                         continue
+
+
+# format value or multivalue with formatter settings.
+# returns formatted result
+def formatValue(v,format):
+    
+    # convert v to float. Raise exception if impossible.
+    # check +-inf and nan and raises exception
+    def toFloat(v):
+        res=float(v)
+        if res!=res:
+            raise Exception("NaN values not supported")
+        if res==float("inf") or res==float("-inf"):
+            raise Exception("infinitive values not supported")
+        return res
+
+    # value is single and format is single
+    def _do1value1format(v,format):
+        
+        if v is None:
+            return None
+
+        if type(format) is not dict:
+           raise Exception("Проверьте настройки программы")
+        
+        item=format.get("item",None)
+
+        # convert to numeric value.
+        # optional parameter "decimalplaces" is supported (default is 0)
+        if item =="number":
+            params=heartbeatAgent.checkParameters(format,{
+                "decimalplaces":{"type":int,
+                                 "mandatory":False}}
+            )
+            v=toFloat(v)
+            decPlaces=params['decimalplaces']
+            if decPlaces is not None:
+                v=round(v,decPlaces)
+        # convert to boolean value.
+        # optional lists [truevalues] and [falsevalues] are supported
+        # default value is returned if not found in truevalues and falsevales
+        elif item=="bool":
+            params=heartbeatAgent.checkParameters(format,{
+                "truevalues":{"type":list,
+                              "mandatory":False},
+                "falsevalues":{"type":list,
+                               "mandatory":False},              
+                "default":{ "type":bool,
+                            "mandatory":False,
+                            "default":False},              
+                }
+            )
+
+            default=params['default']
+            trueValues=params['truevalues']
+            falseValues=params['falsevalues']
+
+            # both truevalues and falsevalues are specified
+            if (trueValues is None) and (falseValues is None):
+                trueValues=[1,'1',True,"true","True",'t','T',"y","Y"]
+                falseValues=[0,'0',False,'false','False','f','F','n',"N"]
+                if v in trueValues:
+                    v=True
+                elif v in falseValues:
+                    v=False
+                else:
+                    v=default
+            # only truevalues are specified. Default value will be ignored
+            elif trueValues is not None:
+                if v in trueValues:
+                    v=True
+                else:
+                    v=False
+            # only falsevalues are specified. Default value will be ignored
+            else:
+                if v in falseValues:
+                    v=False
+                else:
+                    v=True
+
+        # find and replace text in string value (regEx supported)
+        # mandatory strings "find" and "replace" must be specified
+        elif item=="replace":
+            params=heartbeatAgent.checkParameters(format,{
+                "find":{"type":str,
+                        "mandatory":True},
+                "replace":{"type":str,
+                           "mandatory":True},
+                "ignorecase":{"type":bool,
+                           "mandatory":False,
+                           "default":False},
+                }
+            )
+            sFind=params['find']
+            sReplace=params['replace']
+            ignoreCase=params['ignorecase']
+            
+            if ignoreCase:
+                pattern=re.compile(sFind,re.IGNORECASE)
+            else:
+                pattern=re.compile(sFind)
+            if type(v)!=str:
+                v=str(v)
+
+            v=pattern.sub(sReplace,v)
+        # add number to number value.
+        # mandatory number "value" must be specified
+        elif item=="add":
+            params=heartbeatAgent.checkParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+            v=toFloat(v)+params['value']
+        # multiply number to number value.
+        # mandatory number "value" must be specified
+        elif item=="multiply":
+            params=heartbeatAgent.checkParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+            v=toFloat(v)*params['value']
+        # exclude tasks if got value from list specified.
+        elif item=="exclude":
+            params=heartbeatAgent.checkParameters(format,{
+                "values":{"type":list,
+                        "mandatory":True},
+                }
+            )
+            if v in params['values']:
+                v=None
+        # true if python-true value received
+        elif item=="istrue":
+            # params=checkParameters(format,{
+            #     "values":{"type":list,
+            #             "mandatory":True},
+            #     }
+            # )
+            if v:
+                v=True
+            else:
+                v=False
+        elif item=="isfalse":
+            # params=checkParameters(format,{
+            #     "values":{"type":list,
+            #             "mandatory":True},
+            #     }
+            # )
+            if v:
+                v=False
+            else:
+                v=True
+        elif item==">" or item==">=" or item=="<" or item=="<=" or item=="=" or item=="!=":
+            params=heartbeatAgent.checkParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+            v2=params['value']
+            if item==">":
+                v=(v>v2)
+            elif item==">=":
+                v=(v>=v2)
+            elif item=="<":
+                v=(v<v2)
+            elif item=="<=":
+                v=(v<=v2)
+            elif item=="=":
+                v=(v==v2)
+            elif item=="!=":
+                v=(v!=v2)
+        else:
+            raise Exception("поле item не задано либо некорректно. Проверьте настройки программы")
+            
+        return v
+    #end internal function
+
+    if type(format)!=list:
+        # format is {format}
+        return _do1value1format(v,format)
+    else:
+        # format is [{format1},{format2},...]
+        # let's apply formats turn by turn
+        for f in format:
+            v=_do1value1format(v,f)
+        return v
+    # end sub
+
+
+
+# apply result formatters to tasks in tasksToPoll that contains a value
+def formatTasksValues(tasksToPoll,serverName,vServerErrors):
+    pass
+                        # # formatting value
+                        # if taskConfig.get("format",None) is not None:
+                        #     try:
+                        #         task['value']=formatValue(task['value'],taskConfig['format'])
+                        #     except Exception as e:
+                        #         traceback.print_exc(file=sys.stdout)
+                        #         task['error']="обработка результата: "+str(e)    
+                        
+                        # value=task['value']
+                            
+                        # # value is set, but equals none - remove such task
+                        # if value is None:
+                        #     task2remove.add(taskKey)
+                        # else:
+                        #     if type(value)==dict:
+                        #         # and for composite tasks - remove None results too
+                        #         task['value']={k:v for k,v in value.items() if v is not None}
+                        #         # not return empty composite tasks. Return  none instead
+                        #         if not task['value']:
+                        #             task['value']=None
+                        #             task2remove.add(taskKey)
+
+                        # # alarms info is present and not empty
+                        # if task['value'] is not None and taskConfig.get('alarms',None):
+                        #     try:
+                        #         alarms=taskConfig['alarms']
+                                
+                        #         # pre-compile regex patterns
+                        #         for alarm in alarms.values():
+                        #             alarm['pattern']=re.compile(alarm['pattern'])
+                        #         task['alarmsfired']=markAlarms(taskKey, task['value'], alarms)
+                        #     except Exception as e:
+                        #         traceback.print_exc(file=sys.stdout)
+                        #         task['error']="обработка оповещений: "+str(e)    
+
+
+# apply alarm formatters to formatted result.
+# alarm formatters structure is the same as result formatters
+# if after applying we got a value (not [None, False, empty dict, empty list, etc ])
+# then add mark to alarmsfired set
+def markAlarms(tasksToPoll,serverName,vServerErrors):
+    pass
+# check value for matching alarms patterns. 
+# returns alarmsfired structure like {alarmKey:True}
+# value is always true and used because set of only keys cannot be transfered via json
+# def markAlarms(taskKey,value,alarms):
+#     def markSingleTask(taskKey,value,alarms):
+#         assert type(value) in [int, float,bool,str]
+
+#         res={}
+#         for aKey,aData in alarms.items():
+#             # alarm pattern is suitable for this task, check that alarm condition is true
+            
+#             if aData['pattern'].search(taskKey) is not None:
+#                 # alarm check rules and result format rules are processed by the same sub.
+#                 # if applying alarm rule to value gives something true
+#                 # (True, not zero, not empty string or dict etc) then alarm will be fired
+#                 if formatValue(value,aData):
+#                     res.update({aKey:True})
+#         return res
+
+#     if type(value)==dict:
+#         res={}
+#         for k,v in value.items():
+#             if v is not None:
+#                 tmp=markSingleTask(taskKey+"."+k, v, alarms)
+#                 if tmp:
+#                     res.update({k:tmp})
+#         return res
+#     else:
+#         return markSingleTask(taskKey,value,alarms)
+

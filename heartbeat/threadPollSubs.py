@@ -327,7 +327,7 @@ def useOldParameters(vTasksToPoll, oldTasks):
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec,serverDB,serverName,vServerErrors):
 
     # extended error check and task markup for heartbeat tasks.
-    def markHeartBeatTask(task):
+    def markHeartBeatTask(taskKey, task):
 
         # check expected results count==actual count (if specified in settings)
         expResCount=task['config'].get('resultcount',None)
@@ -349,32 +349,57 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             #end if
         #end if
 
-        # modify alarmTimeStamps. Doing alarmTimeStamps.keys()==alarmsFired
+        # set of alarm keys that are fired in this poll
+        alarmsFired=set()
+        alarms=task.get('alarms',{})
+
+        # apply alarm formatters to task value
+        # alarm formatters structure is the same as result formatters
+        # if after applying we got a value (not [None, False, empty dict, empty list, etc ])
+        # then add mark to alarmsfired set
+        if task['value'] is not None and task.get('alarms',None):
+            try:
+                value=task['value']
+                oldValue=oldTasks.get(taskKey,{}).get('value',None)
+                assert type(value) in [int, float,bool,str]
+
+                for aKey,aData in alarms.items():
+
+                    # check value for matching alarms patterns.
+                    # if pattern is not specified - apply to all
+                    if ('pattern' not in aData.keys()) or \
+                            aData['pattern'].search(taskKey) is not None:
+                        # remember alarm if we got something true
+                        # (True, not zero, not empty string or dict etc)
+                        if formatValue(value,aData,oldValue):
+                            alarmsFired.update({aKey})
+
+            except Exception as e:
+                traceback.print_exc(file=sys.stdout)
+                task['error']="обработка оповещений: "+str(e) 
+
+        # timestamps like {alarmKey:timestamp} when alarm was firstly fired
+        # used for calc alarm duration
         alarmTimeStamps=task.get('alarmTimeStamps',{})
 
-        # if not received new alarmsFired from agent in this poll - use old alarmTimeStamps structure
-        alarmsFired=task.pop('alarmsfired',None)
-        
-        if alarmsFired is not None:
-            # remove timeStamps for alarms that not fired
-            alarmTimeStamps={k:v for k,v in alarmTimeStamps.items() if k in alarmsFired}
+        # Doing alarmTimeStamps.keys()==alarmsFired:
+        # 1. remove timeStamps for alarms that not fired
+        alarmTimeStamps={k:v for k,v in alarmTimeStamps.items() if k in alarmsFired}
 
-            # add current timeStamp only if absent in timeStamps else use old
-            for aKey in alarmsFired:
-                if aKey not in alarmTimeStamps.keys():
-                    alarmTimeStamps[aKey]=pollStartTimeStamp
+        # 2. add current timeStamp only if absent in timeStamps else use old
+        for aKey in alarmsFired:
+            if aKey not in alarmTimeStamps.keys():
+                alarmTimeStamps[aKey]=pollStartTimeStamp
 
-            # save alarmTimeStamps for getting it from oldTasks in next poll
-            task['alarmTimeStamps']=alarmTimeStamps        
-            # now alarmTimeStamps.keys()==alarmsFired, work with alarmTimeStamps
-            alarmsFired=None
+        # 3. save alarmTimeStamps for getting it from oldTasks in next poll
+        task['alarmTimeStamps']=alarmTimeStamps        
 
-        # error if one of alarms raised (show first raised alarm)
-        alarmsAll=task['config'].get('alarms',{})
+        # error if one of alarms raised out of specified duration (show first raised alarm)
+        # duration is specified as polling period count
         for aKey,aTimeStamp in alarmTimeStamps.items():
             aDuration = pollStartTimeStamp - aTimeStamp
-            if aKey in alarmsAll.keys():
-                if abs(aDuration) >= alarmsAll[aKey]['duration'] * pollingPeriodSec:
+            if aKey in alarms.keys():
+                if abs(aDuration) >= alarms[aKey].get('duration',0) * pollingPeriodSec:
                     task['error']="оповестить если " + aKey
                     return
     # end sub
@@ -401,7 +426,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     if (task.get('value',None) is None):
                         task['error']="Значение не вычислено"
                         continue
-                    markHeartBeatTask(task)
+                    markHeartBeatTask(taskKey,task)
             else:
                 # data not received. Use task first run time.
                 # also taskStartTimeStamp will not be shown in GUI
@@ -421,6 +446,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             # in this case alarm will not fired imidiately when task will became enabled in future
             t=task.pop('timeStamp',None)
             task.pop('taskStartTimeStamp',None)
+            task.pop('alarmTimeStamps',None)
             task.pop('value',None)
             task.pop('error',None)
 
@@ -474,10 +500,9 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
                     ["style","agentKey","timeStamp","enabled","unit","value","error","itemName"]
                 if key in task.keys()})
 
-            if task.get('config',None) is not None:
-                alarms=task['config'].get('alarms',None)
-                if alarms is not None:
-                    taskData.update({'alarms':alarms})
+            alarms=task.get('alarms',None)
+            if alarms is not None:
+                taskData.update({'alarms':alarms})
 
             if task.get('style', None) == 'rem':
                 agentHasErrors.add(boxName)
@@ -780,6 +805,8 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
     # endfor task
 
 
+# run heartbeat agent locally in server context to process tasks with localroutingkey
+# no amqp is used to sent/receive local tasks
 def runAgentLocally(tasksToPoll,serverName,vServerErrors):
     localTasks={k:v for k,v in tasksToPoll.items() if v.get("agentKey",None)==localRoutingKey}
     try:
@@ -790,7 +817,7 @@ def runAgentLocally(tasksToPoll,serverName,vServerErrors):
 
 # format value or multivalue with formatter settings.
 # returns formatted result
-def formatValue(v,format):
+def formatValue(v,format,oldV):
     
     # convert v to float. Raise exception if impossible.
     # check +-inf and nan and raises exception
@@ -941,11 +968,16 @@ def formatValue(v,format):
                 v=True
         elif item==">" or item==">=" or item=="<" or item=="<=" or item=="=" or item=="!=":
             params=heartbeatAgent.checkParameters(format,{
-                "value":{"type":[int,float],
+                "value":{"type":[int,float,str],
                         "mandatory":True},
                 }
             )
             v2=params['value']
+            
+            # "last" keyword specifies last received value 
+            if v2=='last':
+                v2=oldV
+
             if item==">":
                 v=(v>v2)
             elif item==">=":
@@ -976,79 +1008,17 @@ def formatValue(v,format):
     # end sub
 
 
-
 # apply result formatters to tasks in tasksToPoll that contains a value
-def formatTasksValues(tasksToPoll,serverName,vServerErrors):
-    pass
-                        # # formatting value
-                        # if taskConfig.get("format",None) is not None:
-                        #     try:
-                        #         task['value']=formatValue(task['value'],taskConfig['format'])
-                        #     except Exception as e:
-                        #         traceback.print_exc(file=sys.stdout)
-                        #         task['error']="обработка результата: "+str(e)    
-                        
-                        # value=task['value']
-                            
-                        # # value is set, but equals none - remove such task
-                        # if value is None:
-                        #     task2remove.add(taskKey)
-                        # else:
-                        #     if type(value)==dict:
-                        #         # and for composite tasks - remove None results too
-                        #         task['value']={k:v for k,v in value.items() if v is not None}
-                        #         # not return empty composite tasks. Return  none instead
-                        #         if not task['value']:
-                        #             task['value']=None
-                        #             task2remove.add(taskKey)
-
-                        # # alarms info is present and not empty
-                        # if task['value'] is not None and taskConfig.get('alarms',None):
-                        #     try:
-                        #         alarms=taskConfig['alarms']
-                                
-                        #         # pre-compile regex patterns
-                        #         for alarm in alarms.values():
-                        #             alarm['pattern']=re.compile(alarm['pattern'])
-                        #         task['alarmsfired']=markAlarms(taskKey, task['value'], alarms)
-                        #     except Exception as e:
-                        #         traceback.print_exc(file=sys.stdout)
-                        #         task['error']="обработка оповещений: "+str(e)    
-
-
-# apply alarm formatters to formatted result.
-# alarm formatters structure is the same as result formatters
-# if after applying we got a value (not [None, False, empty dict, empty list, etc ])
-# then add mark to alarmsfired set
-def markAlarms(tasksToPoll,serverName,vServerErrors):
-    pass
-# check value for matching alarms patterns. 
-# returns alarmsfired structure like {alarmKey:True}
-# value is always true and used because set of only keys cannot be transfered via json
-# def markAlarms(taskKey,value,alarms):
-#     def markSingleTask(taskKey,value,alarms):
-#         assert type(value) in [int, float,bool,str]
-
-#         res={}
-#         for aKey,aData in alarms.items():
-#             # alarm pattern is suitable for this task, check that alarm condition is true
-            
-#             if aData['pattern'].search(taskKey) is not None:
-#                 # alarm check rules and result format rules are processed by the same sub.
-#                 # if applying alarm rule to value gives something true
-#                 # (True, not zero, not empty string or dict etc) then alarm will be fired
-#                 if formatValue(value,aData):
-#                     res.update({aKey:True})
-#         return res
-
-#     if type(value)==dict:
-#         res={}
-#         for k,v in value.items():
-#             if v is not None:
-#                 tmp=markSingleTask(taskKey+"."+k, v, alarms)
-#                 if tmp:
-#                     res.update({k:tmp})
-#         return res
-#     else:
-#         return markSingleTask(taskKey,value,alarms)
+def formatTasksValues(tasksToPoll):
+    for task in tasksToPoll.values():
+        if task.get("module",None)=='heartbeat' and \
+                task.get('enabled',True) and \
+                task.get('value',None) is not None and \
+                task.get("format",None) is not None:
+            try:
+                # assert that last value is not need when formatting, only when alerting
+                task['value']=formatValue(task['value'],task['format'],None)
+            except Exception as e:
+                traceback.print_exc(file=sys.stdout)
+                task['error']="обработка результата: "+str(e)    
 

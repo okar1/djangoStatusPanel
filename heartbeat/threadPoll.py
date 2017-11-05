@@ -111,14 +111,7 @@ def threadPoll():
                 # heartbeatAgent.processHeartBeatTasks(tasksToPoll)
                 
                 #apply result formatters to tasks in tasksToPoll that contains a value
-                subs.formatTasksValues(tasksToPoll,server.name,serverErrors)
-
-                # apply alarm formatters to formatted result.
-                # alarm formatters structure is the same as result formatters
-                # if after applying we got a value (not [None, False, empty dict, empty list, etc ])
-                # then add mark to alarmsfired set
-                subs.markAlarms(tasksToPoll,server.name,serverErrors)
-
+                subs.formatTasksValues(tasksToPoll)
             
             # mark task status for GUI.
             # use some parameters from oldTasks if it absent in taskstopoll

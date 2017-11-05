@@ -2,6 +2,7 @@
 import json
 import random
 import traceback
+import re
 
 import sys
 from os import urandom
@@ -413,15 +414,20 @@ class TaskSets(models.Model):
         # todo parse alarms correctly. Process hostAlarms
         def getTaskAlarms(sItemAlarms,sHostAlarms):
             if sItemAlarms!='':
-                res=json.loads(sItemAlarms.replace('\\','\\\\'))
+                alarms=json.loads(sItemAlarms.replace('\\','\\\\'))
             else:
-                res={}
+                alarms={}
+            
+            # precompile alarm patterns
+            for adata in alarms.values():
+                pattern=adata.get('pattern','')
+                adata['pattern']=re.compile(pattern)
             # print("------",res)
             # res={
             # "public > 15":{"pattern":r"\.Public", "item":"isfalse", "duration":0},
             # "private > 20":{"pattern":r"\.Private", "item":"isfalse", "duration":0}
             # }
-            return res
+            return alarms
 
 
         res={}

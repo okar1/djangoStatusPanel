@@ -2,6 +2,36 @@
 import psycopg2
 import re
 
+# wich modules are allowed to run by specific qos device and qos module group
+# like {device:{"modules":{modules}} or {device:{"module_groups":"{modules}}
+qosScheduleDeviceToModuleMapping={
+    "MATCH":{
+        "modules":{"Match"}},
+    "SELF":{
+        "modules":{"SelfMonitor"}},
+    "SNMP":{
+        "modules":{"GenericMonitor"}},
+    "_other_":{
+        "module_groups":{
+            "RF":{"RfMeasurement"},
+            "IP":{"IPStatistics"},
+            "IP_STATISTICS":{"IPStatistics"},
+            "RAW_RECORDING":{"RawDataRecorder"},
+            "EMERGENCY_RECORDING":{"MediaRecorder"},
+            "VIDEO_HASH":{"ImageSearch","ClipSearch","VideoFingerprint",},
+            "AUDIO_HASH":{"AudioFingerprint"},
+            "RECORDING":{"MediaRecorder"},
+            "STREAMING":{"MediaStreamer"},
+            "TS":{"TR101290","AtscA78","TSStructure"},
+            "SUBTITLES":{"CaptionsAnalyzer"},
+            "AD":{"MpegTSSplicingControlModule"},
+            "AUDIO":{"LoudnessR128","LoudnessA85"},
+            "VIDEO":{"QoEVideo"},
+            "BITRATE":{"MpegTSStatisticsIPTVControlModule"},
+        }
+    }
+}
+
 # get period from mresultconfiguration + filter modules, period is int
 '''
 sql="""
@@ -101,12 +131,13 @@ def getOriginatorIdForAlertType(dbConnection, alertType):
         return(str(e), None)
 
 
-# check wich channels are scheduled to run in specified time and which are scheduled to be paused
-# returns dict like {agent:{1:True,3:True, 5:False}}
+# check wich modules are scheduled to run on channels in specified time
+# returns dict like {agent:{1:{GenericMonitor},3:{CaptionsAnalyzer,MediaRecorder}, 5:{}}}
 # where agent - agentkey
 # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
-# bool - is task scheduled to run in specified timestamp or scheduled to be paused
-def getChannelScheduleStatus(dbConnection,timeStamp,zapas):
+# set  - is modules that scheduled to run in specified timestamp
+# if some channel id is absent - this channel is absent in schedule
+def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     
     # check that db schema supports task schedule feature 
     sql="""
@@ -127,21 +158,46 @@ def getChannelScheduleStatus(dbConnection,timeStamp,zapas):
     sql="""
         SELECT 
         agent.entity_key as "agentkey",
-        task.channel_id as "channelid", 
-        bool_or({0}>sc.begin_time and {1}<sc.end_time and devices.type != 'MATCH') as "channelactive"
-        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices"
-        WHERE task.probe_id=agent.id and sc.task_id=task.id and task.device_id=devices.id
-        GROUP BY agent.entity_key, task.channel_id
+        task.channel_id as "channelid",
+        devices.type as "device",
+        profile.configuration as "module_groups",
+        bool_or({0}>sc.begin_time and {1}<least(sc.end_time,sc.until) and devices.type!='MATCH') as "channelactive"
+        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices", qos.monitoring_profile as "profile"
+        WHERE task.probe_id=agent.id and task.id=sc.task_id and task.device_id=devices.id and task.profile_id=profile.id and devices.deleted=false
+        GROUP BY agent.entity_key, task.channel_id, devices.type, profile.configuration
     """.format(str(timeStamp-zapas),str(timeStamp+zapas))
     
     cur = dbConnection.cursor()
     cur.execute(sql)
     rows = cur.fetchall()
 
+    def _getModulesForDevice(channelIsActive,device,allowedGroups):
+        # if channel is not scheduled now - cancel module search
+        if not channelIsActive:
+            return set()
+
+        allMap=qosScheduleDeviceToModuleMapping
+        if device in allMap.keys():
+            devMap=allMap[device]
+        else:
+            devMap=allMap["_other_"]
+
+        if "modules" in devMap.keys():
+            res=devMap["modules"]
+        else:
+            groupMap=devMap["module_groups"]
+            res=set()
+            for groupName, groupIsAllowed in allowedGroups.items():
+                if groupIsAllowed and (groupName in groupMap.keys()):
+                    res.update(groupMap[groupName])
+        return res 
+
     res={}
     for row in rows:
         agentDict=res.setdefault(row[0],{})
-        agentDict.update({row[1]:row[2]})
-
+        modulesSet=agentDict.setdefault(row[1],set())
+        modulesSet.update(_getModulesForDevice(row[4],row[2],row[3]['details']))
+        # if row[1]==1534:
+        #     print(_getModulesForDevice(row[4],row[2],row[3]['details']))
     # print(res)
     return res

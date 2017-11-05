@@ -19,12 +19,16 @@ from pysnmp.proto.rfc1902 import  IpAddress # IpAddres (некорректно �
 from pysnmp.proto.rfc1902 import OctetString #OctetString
 from pyasn1.type.univ import ObjectIdentifier
 
-import wmi
 import re
 import subprocess
 import sys
 import traceback
 # import binascii
+
+import platform
+
+if platform.system()=='Windows':
+    import wmi
 
 mqConf={
     "server":'127.0.0.1',
@@ -41,6 +45,8 @@ maxMsgTotal=50000
 amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
 agentProtocolVersion=2
+localRoutingKey="local"
+isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
 
 presets={
     "smLsiRaid":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.100.1.11", "indexcol":7, "datacol":27},
@@ -157,7 +163,12 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
 
     for taskKey, task in tasksToPoll.items():
         
-        msgRoutingKey=task['agentKey']        
+        msgRoutingKey=task['agentKey']  
+
+        # skip messages with local routing key
+        if msgRoutingKey==localRoutingKey:
+            continue
+
         if serverMode:
             # process only heartbeat tasks
             if task.get('module',None)!='heartbeat':
@@ -173,7 +184,7 @@ def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=Fa
             # filter fields for sending server --> agent
             msgBody={k:v for k,v in task.items() if k in ['config',]}
         else:
-            timeStamp=task['timeStamp']
+            timeStamp=task['timeStamp'].strftime(timeStampFormat)
             # filter fields for sending agent --> server
             msgBody={k:v for k,v in task.items() if k in ['value',]}
             
@@ -264,6 +275,10 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
             errors.add("Ошибка обработки сообщения: неверное содержимое.")
             continue
         
+        # skip messages with local routing key
+        if msg[0].routing_key==localRoutingKey:
+            continue
+
         if serverMode:            
             if headers.get('protocolversion',0) < agentProtocolVersion:
                 errors.add('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
@@ -516,7 +531,7 @@ def taskSnmpTableValue(include, oid, host, port, readcommunity, indexcol, dataco
         tableList=list(_snmpGetTable(oid,host,port,readcommunity).values())
         if tableList:
             if len(tableList[0])-1<max(indexcol,datacol):
-                print(tableList)
+                # print(tableList)
                 raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
             table={row[indexcol]:row[datacol] for row in tableList}
         else:
@@ -541,6 +556,9 @@ def taskSnmpTableValue(include, oid, host, port, readcommunity, indexcol, dataco
 # get wmi table from OpenHardwaqreMonitor like {Identifier:value,...}
 # no error handling
 def _wmiOhmTable():
+    if platform.system()!='Windows':
+        return {}
+
     c=wmi.WMI(namespace="OpenHardwareMonitor")
     wql="select * from Sensor"
     q=c.query(wql)
@@ -550,7 +568,7 @@ def _wmiOhmTable():
 # identifier of openHardwareMonitor table value like "/intelcpu/0/temperature/0"
 def taskOhwTableValue(include):
     res={}
-    if not hasattr(taskOhwTableValue,"tableDict"):
+    if not hasattr(taskOhwTableValue,"table"):
         taskOhwTableValue.table=_wmiOhmTable()
     table=taskOhwTableValue.table
 
@@ -674,8 +692,9 @@ def processHeartBeatTasks(tasksToPoll):
 
     for taskKey,task in tasksToPoll.items():
 
-        print("*********")
-        print("got task:",taskKey,task)
+        if isTestEnv:
+            print("*********")
+            print("got task:",taskKey,task)
 
         if task.get('module',None)!='heartbeat':
             task['error']="Указано неверное имя модуля"
@@ -783,23 +802,30 @@ def processHeartBeatTasks(tasksToPoll):
                         task2remove.add(taskKey)
         # endif
 
-        task.pop('config',None)
-        print("")
-        if taskKey not in task2remove:
-            print ("result:",task)
+        if isTestEnv:
+            print("")
+            if taskKey not in task2remove:
+                print ("result:",task)
+
         #calc current timestamp after end of collecting results        
-        nowDateTime=(datetime.utcnow()).strftime(timeStampFormat)
-        task['timeStamp']=nowDateTime
+        task['timeStamp']=datetime.utcnow()
     #end for
 
     # remove tasks that returned none
     for t2r in task2remove:
         tasksToPoll.pop(t2r)
 
+    # deleting static entires from subroutines
+    # they was used for caching results during processHeartBeatTasks
+    if hasattr(taskOhwTableValue,"table"):
+        delattr(taskOhwTableValue, "table")
+    if hasattr(taskShellTableValue,"commandDict"):
+        delattr(taskShellTableValue, "commandDict")
+    if hasattr(taskSnmpTableValue,"tableDict"):
+        delattr(taskSnmpTableValue, "tableDict")        
+
 
 def agentStart():
-    # print(taskOhmTableValue("/intelcpu/0/temperature/2"))
-    # print(taskOhmTableValue("/intelcpu/0/temperature/0"))
     print("agent start")
     errors=set()
     tasksToPoll={}
@@ -812,7 +838,6 @@ def agentStart():
             print(e)
     print("*********")
     print("agent end")
-
 
 if __name__ == '__main__':
     agentStart()

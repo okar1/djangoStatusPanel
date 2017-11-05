@@ -2,13 +2,16 @@
 import time
 import threading
 import sys
+import platform
 from .models import Servers, Options, TaskSets, Hosts
 from . import threadPollSubs as subs
 from .threadMqConsumers import MqConsumers
 
 isTestEnv=False
 
-# import pythoncom
+if platform.system()=='Windows':
+    import pythoncom
+
 # heartbeat main thread
 def threadPoll():
 
@@ -21,7 +24,9 @@ def threadPoll():
     else:
         return
 
-    # pythoncom.CoInitialize()    
+    if platform.system()=='Windows':
+        pythoncom.CoInitialize()    
+
     print('started Heartbeat thread')
     delayedServerErrors={}
     
@@ -93,10 +98,9 @@ def threadPoll():
                 # send heartbeat tasks request to rabbitmq exchange
                 subs.subSendHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors)
 
-                #debug
-                if isTestEnv:
-                    from .heartbeatAgent import agentStart
-                    agentStart()
+                # messages with local routing key are not actually send to rabbitMQ
+                # they are processed locally in server context
+                subs.runAgentLocally(tasksToPoll,server.name,serverErrors)
                 
                 # receive heartbeat tasks request from rabbitmq queue
                 subs.subReceiveHeartBeatTasks(mqConf,server.name,tasksToPoll,serverErrors,oldTasks)
@@ -180,8 +184,6 @@ def threadPoll():
 
         #debug
         if isTestEnv:
-            # from .heartbeatAgent import agentStart
-            # agentStart()
             print("--------------------------end poll (",threadPoll.pollTimeStamp-pollStartTimeStamp, " sec)")
             print("--------------------------------------------")
         

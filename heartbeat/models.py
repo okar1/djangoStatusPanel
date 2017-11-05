@@ -181,7 +181,8 @@ class Hosts(models.Model):
                 "на этом узле перед публикацией в RabbitMQ. Ключ маршрутизации может влиять на какую конкретно</br>"+
                 "машину с heartbeat agent будет отправлено задание от элемента данных.</br>"+
                 "Допускается создать несколько узлов с одинаковым ключом</br>"+
-                'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку')
+                'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку</br>'+
+                "При указании ключа маршрутизации local сообщения не будут отправлены в RabbitMQ, а будут обработаны локально на машине, где установлен heartbeat")
     server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True,
         help_text="Сервер, к которому будет относиться плитка")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)

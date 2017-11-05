@@ -12,6 +12,9 @@ import re
 timeStampFormat="%Y%m%d%H%M%S"
 matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
 agentProtocolVersion=2
+# messages with this routing key are not actually send to rabbitMQ
+# they are processed locally in server context
+localRoutingKey="local"
 
 # send message "ServerStarted" to "qos.service" queue
 # (no exception handling)
@@ -306,7 +309,9 @@ def useOldParameters(vTasksToPoll, oldTasks):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
                 
                 # if results not received - then prolongate old errors, else no
-                if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()):
+                # also no prolongate errors for disabled tasks
+                if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()) and \
+                        oldTasks.get('enabled',True):
                     task['error'] = oldTasks[taskKey]['error']
 
             if 'alarmTimeStamps' not in task.keys() and ('alarmTimeStamps' in oldTasks[taskKey].keys()):
@@ -335,20 +340,14 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 t.get('itemKey',None)==itemKey and \
                 t.get('agentKey',None)==agentKey and \
                 t.get('agentName',None)==agentName and \
-                t.get('enabled',True)
+                t.get('enabled',True) and \
+                t.get('value',None) is not None
             factResCount=sum([1 for t in tasksToPoll.values() if isTaskToCount(t) ])
             if expResCount!=factResCount:
-                for t in tasksToPoll.values():
-                    if isTaskToCount(t):
-                        t['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
+                task['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
                 return
             #end if
         #end if
-
-        # check that task received a value
-        if (task.get('value',None) is None) and (task.get('error',None) is None) and (task.get('enabled',True)):
-            task['error']="Значение не вычислено"
-            return
 
         # modify alarmTimeStamps. Doing alarmTimeStamps.keys()==alarmsFired
         alarmTimeStamps=task.get('alarmTimeStamps',{})
@@ -380,65 +379,72 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     return
     # end sub
     
-    # remove all markups if exists
+    # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
-        task.pop('style', None)
-
-        # since task is disabled - remove timestamp and value to prevent including it in oldTasks
-        # in this case alarm will not fired imidiately when task will became enabled in future
-        if task.get('enabled',True)==False:
-            task.pop('timeStamp',None)
-            task.pop('value',None)
-
-    # common task markup. status of data recieve
-    for taskKey, task in tasksToPoll.items():
-        if not task.get('enabled',True):
-            # task is disabled
-            task['style'] = 'ign'
-        elif task.get('taskStartTimeStamp', None) is None:
-            # when data not received - set current timestamp as start point
-            # this timestamp will be used for idle time calculation for task
-            # this command will be executed only once for very task
-            task['taskStartTimeStamp']=datetime.utcnow()
-    # endfor
-
-    # common task markup. idle time
-    for task in tasksToPoll.values():
-        if task.get('style',None) is None:
+        
+        if task.get('enabled',True):
+            if task.get('taskStartTimeStamp', None) is None:
+                # when data not received - set current timestamp as start point
+                # this timestamp will be used for idle time calculation for task
+                # this command will be executed only once for very task
+                task['taskStartTimeStamp']=datetime.utcnow()
+            #endif timestamp
             
             # last data received timestamp
             timeStamp=task.get('timeStamp',False)
             
-            # data not received. Use task first run time
-            # taskStartTimeStamp will not be shown in GUI
-            if not timeStamp:
+            if timeStamp:
+                # task received data and has no errors
+                # so, make extended check for heartbeat tasks (alarms, resultcount etc)
+                if task.get('module',None)=='heartbeat' and task.get('error',None) is None:
+                    # check that task received a value
+                    if (task.get('value',None) is None):
+                        task['error']="Значение не вычислено"
+                        continue
+                    markHeartBeatTask(task)
+            else:
+                # data not received. Use task first run time.
+                # also taskStartTimeStamp will not be shown in GUI
                 timeStamp=task.get('taskStartTimeStamp',False)
             
-            if timeStamp:
+            if task.get('error',None) is None:
+                # raise alarm if data is absent for a long time
                 idleTime = datetime.utcnow() - timeStamp
                 idleTime = idleTime.days * 86400 + idleTime.seconds
 
                 if abs(idleTime) > \
                         3 * max(task['period'], pollingPeriodSec):
-                    if task.get('error',None) is None:
-                        task['error'] = 'задача не присылает данные длительное время'
-    #end for
+                    task['error'] = 'задача не присылает данные длительное время'
+                    continue
+        else:
+            # since task is disabled - remove timestamp and value to prevent including it in oldTasks
+            # in this case alarm will not fired imidiately when task will became enabled in future
+            t=task.pop('timeStamp',None)
+            task.pop('taskStartTimeStamp',None)
+            task.pop('value',None)
+            task.pop('error',None)
 
-    #additional markup for heartbeat tasks. Data value, triggers
-    # for task in tasksToPoll.values():
-    for taskKey,task in tasksToPoll.items():
-        # task not received any markup or error in standart markup process
-        # so, make extended check
-        if (task.get('module',None)=='heartbeat') and \
-                (task.get('style',None) != 'ign'):
-            # print("**********", taskKey)
-            markHeartBeatTask(task)
+            # got data from disabled qos task
+            # (check that in oldTasks it was disabled too for avoid fake alarms)
+            if (task.get('module',None) != 'heartbeat') and \
+                    t is not None and \
+                    taskKey.find('.Match.')==-1 and \
+                    taskKey in oldTasks.keys() and \
+                    oldTasks[taskKey].get('enabled',True)==False:
+                task['error']="Debug: задача отключена, но присылает данные"
+    # endfor task
 
     # display error style in task caption
     for taskKey, task in tasksToPoll.items():
-        error=task.get('error',None)
-        if (error is not None):
+        if (task.get('error',None) is not None):
+            # task has errors
             task['style'] = 'rem'
+        elif not task.get('enabled',True):
+            # task is disabled
+            task['style'] = 'ign'
+        else:
+            # task is enabled and has no errors
+            task.pop('style', None)
 
 
 # create box for every agent (controlblock)
@@ -714,7 +720,7 @@ def applyHostAliases(allServerAliases,server,vTasks):
 def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTimeStamp,serverName,vTasksToPoll,vServerErrors):
 
     # request qos db for channel status. Which chnnels are actve now and which are not
-    channelSchedule={}
+    channelScheduledModules={}
     if serverDB:
         try:
             # zapas is seconds count after channel becomes active and before it becomes inactive
@@ -725,7 +731,7 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             # where agent - agentkey
             # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
             # bool - is task scheduled to run in specified timestamp (true) or scheduled to be paused (false)
-            channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
+            channelScheduledModules=qosDb.getChannelScheduledModules(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
 
@@ -737,20 +743,49 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             taskData['enabled']=False
             continue
 
+        # taskIsScheduled=False
+
         #check that qos task is paused by schedule 
         agentKey=taskData['agentKey']
-        agentDict=channelSchedule.get(agentKey,False)
-        # agentDict is presents and not empty
-        if agentDict:
+        agentDict=channelScheduledModules.get(agentKey,False)
+        # if agentDict is absent - this host is absent in schedule
+        # so, treat all such tasks as continuous
+        if agentDict != False:
             # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
-            s=re.search("^.*\.(\d*)$",taskKey)
+            s=re.search("\.(\w*)\.(\d*)$",taskKey)
             if s:
-                channelNumber=int(s.group(1))
+                moduleName=s.group(1)
+                channelNumber=int(s.group(2))
                 # channel present in schedule
+                # else treat such task as continuous
                 if channelNumber in agentDict.keys():
-                    if agentDict[channelNumber]==False:
+                    # current task's module is present in schedule and NOT allowed to run now - disable task
+                    # some module can absent in agentdict if it not described in qosScheduleDeviceToModuleMapping
+                    # ex. when new module types are added to qos
+                    # such new modules will be treat as continuous and will raise fake errors when scheduled
+                    # update qosScheduleDeviceToModuleMapping to avoid this
+                    if moduleName not in agentDict[channelNumber]:
                         taskData['enabled']=False
-                        continue
+                        # dont forget to uncomment early taskIsScheduled when debug )
+                        # taskIsScheduled=taskIsScheduled or True
+
+        # debug check that all tasks are scheduled and there is no continuous tasks
+        # if not taskIsScheduled:
+        #     taskData['error']="задача отсутствует в расписании"
+        # else:
+        #     continue
+        
+        # debug disabling for all qos tasks. testing alarms
+        # taskData['enabled']=False
+    # endfor task
+
+
+def runAgentLocally(tasksToPoll,serverName,vServerErrors):
+    localTasks={k:v for k,v in tasksToPoll.items() if v.get("agentKey",None)==localRoutingKey}
+    try:
+        heartbeatAgent.processHeartBeatTasks(localTasks)
+    except Exception as e:
+        vServerErrors.update(formatErrors({str(e)}, serverName, "localAgent"))
 
 
 # format value or multivalue with formatter settings.

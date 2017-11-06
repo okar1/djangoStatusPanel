@@ -59,7 +59,7 @@ def threadPoll():
             # query DB. Get Db connection and list of tasks for monitoring
             # serverConfig -> (serverDb,tasksToPoll)
             # tasksToPoll like {taskKey: {"agentKey":"aaa", "itemName:" "period":10} }}
-            serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors,oldTasks)
+            serverDb, tasksToPoll = subs.pollDb(serverConfig['db'], server.name, serverErrors,oldTasks, opt['pollingPeriodSec'])
 
             # test all rabbitMQ configs and return first working to mqconf
             # serverConfig['mq']=[mqConf] -> mqConf (select first working mqconf)

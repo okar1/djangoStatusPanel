@@ -77,7 +77,7 @@ def formatErrors(errors, serverName, pollName,delayedError=False):
 
 # dbConfig -> (dbConnection,tasksToPoll)
 # get db connection for later use and query list of tasks from db
-def pollDb(dbConfig, serverName, vServerErrors,oldTasks):
+def pollDb(dbConfig, serverName, vServerErrors,oldTasks,pollingPeriodSec):
     # poll database
     pollName = "Database"
     errors = set()
@@ -107,7 +107,7 @@ def pollDb(dbConfig, serverName, vServerErrors,oldTasks):
         # use first connection in later tasks
         dbConnection = dbConnections[0]
 
-        e, tmp = qosDb.getTasks(dbConnection)
+        e, tmp = qosDb.getTasks(dbConnection, pollingPeriodSec)
         if e is None:
             tasksToPoll = tmp
         else:
@@ -452,9 +452,8 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 
             # got data from disabled qos task
             # (check that in oldTasks it was disabled too for avoid fake alarms)
-            if (task.get('module',None) != 'heartbeat') and \
+            if (task.get('module',None) not in ['heartbeat','Match'] ) and \
                     t is not None and \
-                    taskKey.find('.Match.')==-1 and \
                     taskKey in oldTasks.keys() and \
                     oldTasks[taskKey].get('enabled',True)==False:
                 task['error']="Debug: задача отключена, но присылает данные"
@@ -584,10 +583,13 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
     # calc errors percent in pollresult ("no error" tasks/"error" tasks condition in percent)
     for poll in pollResult:
         if "error" in poll:
-            count = len(poll['data'])
+            # count of not-disabled tasks
+            count = sum([record.get("style", None) != "ign"
+                        for record in poll['data']])
             if count > 0:
-                errCount = sum([record.get("style", None) ==
-                                "rem" for record in poll['data']])
+                # count of error tasks
+                errCount = sum([record.get("style", None) == "rem"
+                    for record in poll['data']])
                 # print (errCount)
                 poll['progress'] = int(100 * errCount / count)
                 if poll['pollServer'] == poll['name']:
@@ -764,7 +766,8 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
 
     for taskKey,taskData in vTasksToPoll.items():
         # check that task is placed inside existing heartbeat host, that is disabled
-        if hostsEnabled.get(taskData['agentName'],True)==False:
+        if hostsEnabled.get(taskData['agentName'],True)==False or \
+                taskData['module'] in ['MediaRecorder', 'MediaStreamer']:
             taskData['enabled']=False
             continue
 
@@ -791,6 +794,7 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
                     # update qosScheduleDeviceToModuleMapping to avoid this
                     if moduleName not in agentDict[channelNumber]:
                         taskData['enabled']=False
+                        continue
                         # dont forget to uncomment early taskIsScheduled when debug )
                         # taskIsScheduled=taskIsScheduled or True
 

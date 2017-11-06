@@ -65,42 +65,94 @@ def getDbConnection(dbConf):
     return psycopg2.connect(conString)
 
 
-# return tuple with error strings and all active task like {taskKey:
-# {"agentKey":"aaa", "period":10} }}
-def getTasks(dbConnection):
+# return tuple with error strings and all active task like 
+# (error,{taskKey: {"agentKey":"aaa", "period":10}} )
+def getTasks(dbConnection, defaultPeriod):
     # get period mproperty (no filter need), period is string
 
     error = None
     result = {}
 
-    sql = """SELECT magent.entity_key as "agentkey",
-    magent.displayname as "agentname",
-    magenttask.entity_key as "taskkey",
-    magenttask.displayname as "displayname",
-    mproperty.value as "period"
-    from magenttask,mmediaagentmodule,magent,magenttask_mproperty,mproperty
-    where
-    magent.deleted=false and
-    magenttask.deleted=false and
-    magenttask.disabled=false and
-    magenttask.parent_id=mmediaagentmodule.id and
-    mmediaagentmodule.parent_id=magent.id and
-    magenttask_mproperty.magenttask_id=magenttask.id and
-    magenttask_mproperty.properties_id=mproperty.id and
-    mproperty.name='period'
+    # This behemoth is executed once per poll (usually 60 or 120 sec).
+    # it costs nearly 900 msec or less for one of our production servers.
+    # sql text is constant, no conditional formatting.
+
+    # LEFT JOIN on module is used for "url" field
+    # this field is none when module havent url property (all but MediaRecorder and MediaStreamer)
+    # LEFT JOIN on magenttask is used for "period" field 
+    # this field is none when module havent period property (i.e. MediaRecorder and MediaStreamer)
+    sql = """
+    SELECT 
+        agent.entity_key as "agentkey",
+        agent.displayname as "agentname",
+        module.displayname as "modulename",
+        task.entity_key as "taskkey",
+        task.displayname as "displayname",
+        prop.value as "period",
+        urls.url
+    FROM 
+        magent as "agent", mmediaagentmodule as "module" LEFT JOIN (
+                -- mmediaagentmodule_mstream is a link table from mmediaagentmodule to both mrecordedstream and mlivestream
+                SELECT DISTINCT ON (id) 
+                    link2u.mmediaagentmodule_id as "id", m2u.url
+                FROM mmediaagentmodule_mstream as "link2u",
+                        -- mrecordedstream and mlivestream can be united because their id's are not intersects
+                        (
+                        -- mrecordedstream contains urls for MediaRecorder
+                        SELECT id, templatestreamurl as "url" FROM mrecordedstream
+                            UNION ALL
+                        -- mlivestream contains urls for MediaStreamer
+                        SELECT id, templateurl as "url" FROM mlivestream
+                        ) as "m2u"
+                WHERE link2u.templatestreams_id=m2u.id
+            ) as "urls" ON module.id=urls.id,
+        magenttask as "task" LEFT JOIN (
+                -- select all properties with name="period"
+                SELECT t2p.magenttask_id, p.value
+                FROM magenttask_mproperty as "t2p", mproperty as "p"
+                WHERE p.name='period' and t2p.properties_id=p.id
+            ) as "prop"
+            ON task.id=prop.magenttask_id
+    WHERE
+        agent.id=module.parent_id and
+        module.id=task.parent_id and
+        
+        agent.deleted=false and
+        task.deleted=false and
+        task.disabled=false
     """
 
     try:
         cur = dbConnection.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
-
-        result = {row[2]: {"agentKey": row[0], "agentName":row[1], "itemName": row[3],
-            "period": int(row[4])} for row in rows}
-        return (error, result)
     except Exception as e:
         error = str(e)
         return (error, result)
+
+    # incoming url like "rtmpt://10.10.10.10:8077/qligentPlayer/stream_${properties.streamTaskId}"
+    # result like 10.10.10.10:8077
+    def _getAddress(url):
+        if url is None:
+            return None
+        pattern=r"\d*://(.*?)/.*"
+        r=re.search(pattern,url)
+        if r is not None:
+            return r.group(1)
+        else:
+           return None
+
+    result = {row[3]: {
+        "agentKey": row[0],
+        "agentName":row[1],
+        "module": row[2],
+        "itemName": row[4],
+        "period": defaultPeriod if row[5] is None else int(row[5]),
+        "serviceIp": _getAddress(row[6])
+        }
+            for row in rows}
+    return (error, result)
+
 
 
 # return tuple with error strings and integer originatorID for specified

@@ -841,3 +841,4 @@ def agentStart():
 
 if __name__ == '__main__':
     agentStart()
+    # ''.join(random.choices(string.ascii_uppercase + string.digits, k=20))

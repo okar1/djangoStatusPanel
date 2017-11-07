@@ -212,7 +212,7 @@ class MainView(BoxFormView):
             if not task.get('enabled',True):
                 name += " : Задача отключена "
 
-            if 'timeStamp' in task.keys():
+            if 'timeStamp' in task.keys() and task.get('style', None) != 'ign':
                 idleTime = datetime.utcnow() - task['timeStamp']
                 idleTime = idleTime.days * 86400 + idleTime.seconds
                 name+=(" : "+secondsCountToHumanString(idleTime)+" назад")

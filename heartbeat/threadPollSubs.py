@@ -8,6 +8,8 @@ from . import heartbeatAgent
 from .threadMqConsumers import MqConsumers
 from . import timeDB
 import re
+import calendar
+
 
 timeStampFormat="%Y%m%d%H%M%S"
 matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
@@ -407,18 +409,23 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
         
+        # timestamp when task state changed from enabled to disabled and vise versa
+        taskStateChangeTimeStamp = task.get('taskChangeStateTimeStamp', None)
+        if taskStateChangeTimeStamp is None or \
+                task.get('enabled',True) != oldTasks.get(taskKey,{}).get('enabled',True):
+            taskStateChangeTimeStamp=pollStartTimeStamp
+        task['taskChangeStateTimeStamp']=taskStateChangeTimeStamp
+
+        # last data received timestamp
+        timeStamp=task.get('timeStamp',None)
+        if timeStamp is not None:
+            # convert from datetime to int timestamp
+            timeStamp=calendar.timegm(timeStamp.timetuple())
+
+        # when delay becomes > this - got alarm
+        maxDelayForAlarm=4 * max(task['period'], pollingPeriodSec)
+
         if task.get('enabled',True):
-            
-            # if first run or state changed
-            if task.get('taskChangeStateTimeStamp', None) is None or \
-                    oldTasks.get(taskKey,{}).get('enabled',True)==False:
-                # this timestamp will be used for idle/active time calculation for task
-                task['taskChangeStateTimeStamp']=datetime.utcnow()
-            #endif timestamp
-            
-            # last data received timestamp
-            timeStamp=task.get('timeStamp',False)
-            
             if timeStamp:
                 # task received data and has no errors
                 # so, make extended check for heartbeat tasks (alarms, resultcount etc)
@@ -431,42 +438,33 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             else:
                 # data not received. Use task change state time.
                 # also taskChangeStateTimeStamp will not be shown in GUI
-                timeStamp=task.get('taskChangeStateTimeStamp',False)
+                timeStamp=taskStateChangeTimeStamp
             
             if task.get('error',None) is None:
-                # raise alarm if data is absent for a long time
-                idleTime = datetime.utcnow() - timeStamp
-                idleTime = idleTime.days * 86400 + idleTime.seconds
+                # when task enabled - idletime is how long we not received data
+                idleTime = pollStartTimeStamp - timeStamp
 
-                if abs(idleTime) > \
-                        4 * max(task['period'], pollingPeriodSec):
+                if abs(idleTime) > maxDelayForAlarm:
                     task['error'] = 'задача не присылает данные длительное время'
                     continue
         else:
             # since task is disabled - remove timestamp and value to prevent including it in oldTasks
             # in this case alarm will not fired imidiately when task will became enabled in future
-            t=task.pop('timeStamp',None)
             task.pop('alarmTimeStamps',None)
             task.pop('value',None)
             task.pop('error',None)
 
-            # if first run or state changed
-            if task.get('taskChangeStateTimeStamp', None) is None or \
-                    oldTasks.get(taskKey,{}).get('enabled',True)==True:
-                # this timestamp will be used for idle/active time calculation for task
-                task['taskChangeStateTimeStamp']=datetime.utcnow()
+            if timeStamp is None:
+                timeStamp=taskStateChangeTimeStamp
             
-            timeStamp=task.get('taskChangeStateTimeStamp',False)
-            idleTime = datetime.utcnow() - timeStamp
-            idleTime = idleTime.days * 86400 + idleTime.seconds
-
+            # when task disabled - notIdletime is how long we received data (but shoud not)
             # got data from disabled qos task
-            # error occurs only afrer some poll periods to avoid fake alarms on task state swich
-            if (task.get('module',None) not in ['heartbeat','Match'] ) and \
-                    t is not None and \
-                    abs(idleTime) > \
-                        4 * max(task['period'], pollingPeriodSec):
-                task['error']="задача отключена, но присылает данные"
+            if (task.get('module',None) not in ['heartbeat','Match'] ):
+                    # more than maxDelayForAlarm from state change are gone
+                    if pollStartTimeStamp - taskStateChangeTimeStamp > maxDelayForAlarm:
+                        # but for last maxDelayForAlarm seconds we still receive data
+                        if pollStartTimeStamp - timeStamp < maxDelayForAlarm:
+                            task['error']="задача отключена, но присылает данные"
     # endfor task
 
     # display error style in task caption
@@ -790,7 +788,7 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
         # so, treat all such tasks as continuous
         if agentDict != False:
             # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
-            s=re.search("\.(\w*)\.(\d*)$",taskKey)
+            s=re.search("\.(\w*)[\._](\d*)$",taskKey)
             if s:
                 moduleName=s.group(1)
                 channelNumber=int(s.group(2))

@@ -303,8 +303,8 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
 def useOldParameters(vTasksToPoll, oldTasks):
     for taskKey, task in vTasksToPoll.items():
         if taskKey in oldTasks.keys():
-            if 'taskStartTimeStamp' not in task.keys() and ('taskStartTimeStamp' in oldTasks[taskKey].keys()):
-                task['taskStartTimeStamp'] = oldTasks[taskKey]['taskStartTimeStamp']
+            if 'taskChangeStateTimeStamp' not in task.keys() and ('taskChangeStateTimeStamp' in oldTasks[taskKey].keys()):
+                task['taskChangeStateTimeStamp'] = oldTasks[taskKey]['taskChangeStateTimeStamp']
             if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
                 
@@ -408,11 +408,12 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     for taskKey, task in tasksToPoll.items():
         
         if task.get('enabled',True):
-            if task.get('taskStartTimeStamp', None) is None:
-                # when data not received - set current timestamp as start point
-                # this timestamp will be used for idle time calculation for task
-                # this command will be executed only once for very task
-                task['taskStartTimeStamp']=datetime.utcnow()
+            
+            # if first run or state changed
+            if task.get('taskChangeStateTimeStamp', None) is None or \
+                    oldTasks.get(taskKey,{}).get('enabled',True)==False:
+                # this timestamp will be used for idle/active time calculation for task
+                task['taskChangeStateTimeStamp']=datetime.utcnow()
             #endif timestamp
             
             # last data received timestamp
@@ -428,9 +429,9 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                         continue
                     markHeartBeatTask(taskKey,task)
             else:
-                # data not received. Use task first run time.
-                # also taskStartTimeStamp will not be shown in GUI
-                timeStamp=task.get('taskStartTimeStamp',False)
+                # data not received. Use task change state time.
+                # also taskChangeStateTimeStamp will not be shown in GUI
+                timeStamp=task.get('taskChangeStateTimeStamp',False)
             
             if task.get('error',None) is None:
                 # raise alarm if data is absent for a long time
@@ -438,25 +439,34 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 idleTime = idleTime.days * 86400 + idleTime.seconds
 
                 if abs(idleTime) > \
-                        3 * max(task['period'], pollingPeriodSec):
+                        4 * max(task['period'], pollingPeriodSec):
                     task['error'] = 'задача не присылает данные длительное время'
                     continue
         else:
             # since task is disabled - remove timestamp and value to prevent including it in oldTasks
             # in this case alarm will not fired imidiately when task will became enabled in future
             t=task.pop('timeStamp',None)
-            task.pop('taskStartTimeStamp',None)
             task.pop('alarmTimeStamps',None)
             task.pop('value',None)
             task.pop('error',None)
 
+            # if first run or state changed
+            if task.get('taskChangeStateTimeStamp', None) is None or \
+                    oldTasks.get(taskKey,{}).get('enabled',True)==True:
+                # this timestamp will be used for idle/active time calculation for task
+                task['taskChangeStateTimeStamp']=datetime.utcnow()
+            
+            timeStamp=task.get('taskChangeStateTimeStamp',False)
+            idleTime = datetime.utcnow() - timeStamp
+            idleTime = idleTime.days * 86400 + idleTime.seconds
+
             # got data from disabled qos task
-            # (check that in oldTasks it was disabled too for avoid fake alarms)
+            # error occurs only afrer some poll periods to avoid fake alarms on task state swich
             if (task.get('module',None) not in ['heartbeat','Match'] ) and \
                     t is not None and \
-                    taskKey in oldTasks.keys() and \
-                    oldTasks[taskKey].get('enabled',True)==False:
-                task['error']="Debug: задача отключена, но присылает данные"
+                    abs(idleTime) > \
+                        4 * max(task['period'], pollingPeriodSec):
+                task['error']="задача отключена, но присылает данные"
     # endfor task
 
     # display error style in task caption

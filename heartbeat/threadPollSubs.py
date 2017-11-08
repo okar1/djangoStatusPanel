@@ -305,8 +305,8 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
 def useOldParameters(vTasksToPoll, oldTasks):
     for taskKey, task in vTasksToPoll.items():
         if taskKey in oldTasks.keys():
-            if 'taskChangeStateTimeStamp' not in task.keys() and ('taskChangeStateTimeStamp' in oldTasks[taskKey].keys()):
-                task['taskChangeStateTimeStamp'] = oldTasks[taskKey]['taskChangeStateTimeStamp']
+            if 'stateChangeTimeStamp' not in task.keys() and ('stateChangeTimeStamp' in oldTasks[taskKey].keys()):
+                task['stateChangeTimeStamp'] = oldTasks[taskKey]['stateChangeTimeStamp']
             if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
                 
@@ -402,34 +402,36 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             aDuration = pollStartTimeStamp - aTimeStamp
             if aKey in alarms.keys():
                 if abs(aDuration) >= alarms[aKey].get('duration',0) * pollingPeriodSec:
-                    task['error']="оповестить если " + aKey
+                    task['error']= aKey
                     return
     # end sub
     
     # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
-        
+        enabled=task.get('enabled',True)
+        timeStamp=task.get('timeStamp',None)        
+        stateChangeTimeStamp = task.get('stateChangeTimeStamp', None)
+        module=task.get('module',None)
+
         # timestamp when task state changed from enabled to disabled and vise versa
-        taskStateChangeTimeStamp = task.get('taskChangeStateTimeStamp', None)
-        if taskStateChangeTimeStamp is None or \
-                task.get('enabled',True) != oldTasks.get(taskKey,{}).get('enabled',True):
-            taskStateChangeTimeStamp=pollStartTimeStamp
-        task['taskChangeStateTimeStamp']=taskStateChangeTimeStamp
+        if stateChangeTimeStamp is None or \
+                enabled != oldTasks.get(taskKey,{}).get('enabled',True):
+            stateChangeTimeStamp=pollStartTimeStamp
+            task['stateChangeTimeStamp']=stateChangeTimeStamp
 
         # last data received timestamp
-        timeStamp=task.get('timeStamp',None)
         if timeStamp is not None:
             # convert from datetime to int timestamp
             timeStamp=calendar.timegm(timeStamp.timetuple())
 
         # when delay becomes > this - got alarm
-        maxDelayForAlarm=4 * max(task['period'], pollingPeriodSec)
+        aDuration =4 * max(task['period'], pollingPeriodSec)
 
-        if task.get('enabled',True):
+        if enabled:
             if timeStamp:
                 # task received data and has no errors
                 # so, make extended check for heartbeat tasks (alarms, resultcount etc)
-                if task.get('module',None)=='heartbeat' and task.get('error',None) is None:
+                if module=='heartbeat' and task.get('error',None) is None:
                     # check that task received a value
                     if (task.get('value',None) is None):
                         task['error']="Значение не вычислено"
@@ -437,14 +439,12 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                     markHeartBeatTask(taskKey,task)
             else:
                 # data not received. Use task change state time.
-                # also taskChangeStateTimeStamp will not be shown in GUI
-                timeStamp=taskStateChangeTimeStamp
+                # also stateChangeTimeStamp will not be shown in GUI
+                timeStamp=stateChangeTimeStamp
             
             if task.get('error',None) is None:
-                # when task enabled - idletime is how long we not received data
-                idleTime = pollStartTimeStamp - timeStamp
-
-                if abs(idleTime) > maxDelayForAlarm:
+                # when task enabled - calc how long we not received data
+                if abs(pollStartTimeStamp - timeStamp) > aDuration :
                     task['error'] = 'задача не присылает данные длительное время'
                     continue
         else:
@@ -455,15 +455,15 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             task.pop('error',None)
 
             if timeStamp is None:
-                timeStamp=taskStateChangeTimeStamp
+                timeStamp=stateChangeTimeStamp
             
-            # when task disabled - notIdletime is how long we received data (but shoud not)
+            # when task disabled -  calc how long we received data (but shoud not)
             # got data from disabled qos task
-            if (task.get('module',None) not in ['heartbeat','Match'] ):
-                    # more than maxDelayForAlarm from state change are gone
-                    if pollStartTimeStamp - taskStateChangeTimeStamp > maxDelayForAlarm:
-                        # but for last maxDelayForAlarm seconds we still receive data
-                        if pollStartTimeStamp - timeStamp < maxDelayForAlarm:
+            if module not in ['heartbeat','Match'] :
+                    # more than aDuration  from state change are gone
+                    if pollStartTimeStamp - stateChangeTimeStamp > aDuration :
+                        # but for last aDuration  seconds we still receive data
+                        if pollStartTimeStamp - timeStamp < aDuration :
                             task['error']="задача отключена, но присылает данные"
     # endfor task
 
@@ -472,7 +472,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         if (task.get('error',None) is not None):
             # task has errors
             task['style'] = 'rem'
-        elif not task.get('enabled',True):
+        elif not enabled:
             # task is disabled
             task['style'] = 'ign'
         else:

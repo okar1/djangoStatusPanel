@@ -3,7 +3,6 @@ from shared.views import BoxForm, BoxFormView
 from .threadPoll import threadPoll
 from .models import Servers, ServerGroups, Options
 import time
-import re
 from datetime import datetime
 
 
@@ -191,7 +190,6 @@ class MainView(BoxFormView):
             return res+t['name']
 
         def getNameForTask(task):
-            # print(task)
             taskKey=task['id']
 
             if task.get('servertask',False):
@@ -200,8 +198,12 @@ class MainView(BoxFormView):
                 name= "{0} ({1}".format(taskKey, task['itemName'])
 
                 alarms=task.get('alarms',{})
-                # if 'pattern' not in keys - return taskkey and *, so re.search allways wil be none
-                alarmsCount=sum([True for alarmData in alarms.values() if re.search(alarmData.get('pattern',taskKey+"*"),taskKey) is not None])
+                # if 'pattern' not in keys - apply to all (like pattern .*)
+                alarmsCount=sum([True 
+                    for alarmData in alarms.values()
+                    if ('pattern' not in alarmData.keys()) or \
+                            alarmData['pattern'].search(taskKey)
+                    ])
                 if alarmsCount>0:
                     name+= " +"+str(alarmsCount)+" alarm"
 
@@ -210,7 +212,7 @@ class MainView(BoxFormView):
             if not task.get('enabled',True):
                 name += " : Задача отключена "
 
-            if 'timeStamp' in task.keys():
+            if 'timeStamp' in task.keys() and task.get('style', None) != 'ign':
                 idleTime = datetime.utcnow() - task['timeStamp']
                 idleTime = idleTime.days * 86400 + idleTime.seconds
                 name+=(" : "+secondsCountToHumanString(idleTime)+" назад")
@@ -236,8 +238,11 @@ class MainView(BoxFormView):
             boxTasks=[]
             for task in box['data']:
                 viewTask=task.copy()
+                # alarms.pattern and timestamp are used here 
                 viewTask['name']=getNameForTask(task)
+                # now remove them because of non-need and non-serializable
                 viewTask.pop('timeStamp',None)
+                viewTask.pop('alarms',None)
                 boxTasks+=[viewTask]
             boxTasks.sort(key=sortTasks)
             tasks[box['id']]=boxTasks

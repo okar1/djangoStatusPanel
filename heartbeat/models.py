@@ -2,6 +2,7 @@
 import json
 import random
 import traceback
+import re
 
 import sys
 from os import urandom
@@ -181,7 +182,8 @@ class Hosts(models.Model):
                 "на этом узле перед публикацией в RabbitMQ. Ключ маршрутизации может влиять на какую конкретно</br>"+
                 "машину с heartbeat agent будет отправлено задание от элемента данных.</br>"+
                 "Допускается создать несколько узлов с одинаковым ключом</br>"+
-                'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку')
+                'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку</br>'+
+                "При указании ключа маршрутизации local сообщения не будут отправлены в RabbitMQ, а будут обработаны локально на машине, где установлен heartbeat")
     server = models.ForeignKey(Servers,verbose_name="Сервер", blank=False, null=False, editable=True,
         help_text="Сервер, к которому будет относиться плитка")
     enabled = models.BooleanField("Включен", blank=False, null=False, editable=True, default=True)
@@ -412,15 +414,20 @@ class TaskSets(models.Model):
         # todo parse alarms correctly. Process hostAlarms
         def getTaskAlarms(sItemAlarms,sHostAlarms):
             if sItemAlarms!='':
-                res=json.loads(sItemAlarms.replace('\\','\\\\'))
+                alarms=json.loads(sItemAlarms.replace('\\','\\\\'))
             else:
-                res={}
+                alarms={}
+            
+            # precompile alarm patterns
+            for adata in alarms.values():
+                pattern=adata.get('pattern','')
+                adata['pattern']=re.compile(pattern)
             # print("------",res)
             # res={
             # "public > 15":{"pattern":r"\.Public", "item":"isfalse", "duration":0},
             # "private > 20":{"pattern":r"\.Private", "item":"isfalse", "duration":0}
             # }
-            return res
+            return alarms
 
 
         res={}
@@ -428,7 +435,7 @@ class TaskSets(models.Model):
             # taskKey=task.hostkey + '.heartbeat.' + task.itemkey
             # taskKey="heartbeat." + str(task.id) + "." + task.itemkey
             taskKey=task.hostkey + "." + str(task.id) + "." + task.itemkey
-            taskValue={
+            taskData={
                     "agentKey":task.hostkey,
                     "itemKey":task.itemkey,
                     "agentName":task.hostname,
@@ -442,34 +449,34 @@ class TaskSets(models.Model):
                 taskConfig=getTaskConfig(task.itemconfig,task.hostconfig,task.itemkey)
             except Exception as e:
                 taskConfig={}
-                taskValue['error']=str(e)
+                taskData['error']="Настройка элемента данных "+str(e)
                 traceback.print_exc(file=sys.stdout)
-
-            taskValue["config"]=taskConfig
+            if taskConfig:
+                taskData["config"]=taskConfig
 
             try:
                 taskAlarms=getTaskAlarms(task.itemalarms,task.hostalarms)
-                if taskAlarms:
-                    taskConfig["alarms"]=taskAlarms
             except Exception as e:
                 taskAlarms={}
-                taskValue['error']="Настройка оповещений "+str(e)
+                taskData['error']="Настройка оповещений "+str(e)
                 traceback.print_exc(file=sys.stdout)
-            
+            if taskAlarms:
+                taskData["alarms"]=taskAlarms
+
             try:
                 taskFormat=getTaskFormat(task.format)
-                if taskFormat:
-                    taskConfig["format"]=taskFormat
             except Exception as e:
                 taskFormat=None
-                taskValue['error']="Настройка обработки результата "+str(e)
+                taskData['error']="Настройка обработки результата "+str(e)
                 traceback.print_exc(file=sys.stdout)
-            
+            if taskFormat:
+                taskData["format"]=taskFormat
 
-            res[taskKey]=taskValue
+            res[taskKey]=taskData
             
         # print(res)
         return res
+
 
     class Meta:
         verbose_name = 'задача сбора данных'

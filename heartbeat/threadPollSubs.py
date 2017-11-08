@@ -4,13 +4,19 @@ import pika
 import time
 from datetime import datetime
 from . import qosDb
+from . import heartbeatAgent
 from .threadMqConsumers import MqConsumers
 from . import timeDB
 import re
+import calendar
+
 
 timeStampFormat="%Y%m%d%H%M%S"
 matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
 agentProtocolVersion=2
+# messages with this routing key are not actually send to rabbitMQ
+# they are processed locally in server context
+localRoutingKey="local"
 
 # send message "ServerStarted" to "qos.service" queue
 # (no exception handling)
@@ -55,164 +61,6 @@ def sendRegisterMessage(server,routingKeys):
     connection.close()
 
 
-
-def sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange,serverMode=False):
-    
-    errors=set()
-
-    if not mqAmqpConnection:
-        errors.add('Соединение с RabbitMQ не установлено')
-        return errors
-
-    channel = mqAmqpConnection.channel()
-
-    try:
-        channel.exchange_declare(exchange=sendToExchange, exchange_type='topic', durable=True)
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    for taskKey, task in tasksToPoll.items():
-        
-        msgRoutingKey=task['agentKey']        
-        if serverMode:
-            # process only heartbeat tasks
-            if task.get('module',None)!='heartbeat':
-                continue
-            # process only enabled tasks
-            if not task.get('enabled',False):
-                continue
-            # skip sending error tasks from server
-            if task.get('error',False):
-                continue
-            timeStamp=(datetime.utcnow()).strftime(timeStampFormat)
-            
-            # filter fields for sending server --> agent
-            msgBody={k:v for k,v in task.items() if k in ['config',]}
-        else:
-            timeStamp=task['timeStamp']
-            # filter fields for sending agent --> server
-            msgBody={k:v for k,v in task.items() if k in ['value','alarmsfired']}
-            
-        msgHeaders={'key':taskKey,'timestamp':timeStamp,'unit':task['unit'],
-                    'protocolversion':agentProtocolVersion}
-
-        if "error" in task.keys():
-            msgHeaders['error']=task['error']
-
-        channel.basic_publish(
-            exchange=sendToExchange,
-            routing_key=msgRoutingKey,
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # make message persistent
-                content_type='application/json',
-                content_encoding='UTF-8',
-                priority=0,
-                expiration="86400000",
-                headers=msgHeaders),
-            body=json.dumps(msgBody).encode('UTF-8')
-        )
-    return errors
-
-
-def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMode=False):
-
-    errors=set()
-
-    if not mqAmqpConnection:
-        errors.add('Соединение с RabbitMQ не установлено')
-        return errors
-
-    channel = mqAmqpConnection.channel()
-
-    try:
-        channel.queue_declare(queue=receiveFromQueue, durable=True,arguments={'x-message-ttl':1800000})
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    try:
-        channel.exchange_declare(exchange=receiveFromQueue, exchange_type='topic', durable=True)
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    try:
-        channel.queue_bind(queue=receiveFromQueue, exchange=receiveFromQueue, routing_key="#")
-    except Exception as e:
-        errors.add(str(e))
-        return errors
-
-    mqMessages = []
-    while True:
-        # connect and check errors (amqp)
-        getOk = None
-        try:
-            getOk, *mqMessage = channel.basic_get(receiveFromQueue, no_ack=True)
-        except Exception as e:
-            errors.add(str(e))
-            continue
-        if getOk:
-            mqMessage=[getOk]+mqMessage
-            if mqMessage[1].content_type != 'application/json':
-                errors.add("Неверный тип данных " + mqMessage[0].content_type)
-                continue
-            mqMessages += [mqMessage]
-        else:
-            break
-    # endwhile messages in rabbit queue            
-
-    # now we have list of mqMessages
-    for msg in mqMessages:
-
-        try:
-            headers = msg[1].headers
-            taskKey=headers['key']
-            taskUnit=headers['unit']
-        except Exception as e:
-            errors.add("Ошибка обработки сообщения: неверный заголовок.")
-            continue
-
-        # parse message payload
-        try:
-            msgBody = json.loads((msg[2]).decode('utf-8'))
-            assert type(msgBody)==dict
-        except Exception as e:
-            errors.add("Ошибка обработки сообщения: неверное содержимое.")
-            continue
-        
-        if serverMode:            
-            if headers.get('protocolversion',0) < agentProtocolVersion:
-                errors.add('Версия heartbeatAgent устарела. Обновите heartbeatAgent на '+msg[0].routing_key)
-                continue
-
-            if taskKey not in tasksToPoll.keys():
-                errors.add('Ошибка обработки сообщения: неверный ключ '+taskKey)
-                continue
-
-            try:
-                stringTimeStamp=headers['timestamp']
-                taskTimeStamp=datetime.strptime(stringTimeStamp, timeStampFormat)
-                tasksToPoll[taskKey]['timeStamp']=taskTimeStamp
-            except Exception as e:
-                errors.add("Ошибка обработки сообщения: неверная метка времени.")
-                continue
-
-            error=headers.get('error',None)
-            
-            # filter fields when reseiving at server side
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['value','alarmsfired'] })
-            tasksToPoll[taskKey]['unit']=taskUnit
-            if error is not None:
-                tasksToPoll[taskKey]['error']=error
-        else:
-            # filter fields when reseiving at agent side
-            tasksToPoll[taskKey]={'module':'heartbeat','agentKey':msg[0].routing_key,'unit':taskUnit}
-            tasksToPoll[taskKey].update({k:v for k,v in msgBody.items() if k in ['config',]  })
-    # endfor messages in current request
-    return errors
-
-
 def formatErrors(errors, serverName, pollName,delayedError=False):
     # dellayed error will not be shown as error in current pollresult
     # it appears only if repeated in next pollresult
@@ -231,7 +79,7 @@ def formatErrors(errors, serverName, pollName,delayedError=False):
 
 # dbConfig -> (dbConnection,tasksToPoll)
 # get db connection for later use and query list of tasks from db
-def pollDb(dbConfig, serverName, vServerErrors,oldTasks):
+def pollDb(dbConfig, serverName, vServerErrors,oldTasks,pollingPeriodSec):
     # poll database
     pollName = "Database"
     errors = set()
@@ -261,7 +109,7 @@ def pollDb(dbConfig, serverName, vServerErrors,oldTasks):
         # use first connection in later tasks
         dbConnection = dbConnections[0]
 
-        e, tmp = qosDb.getTasks(dbConnection)
+        e, tmp = qosDb.getTasks(dbConnection, pollingPeriodSec)
         if e is None:
             tasksToPoll = tmp
         else:
@@ -393,7 +241,7 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
 # send heartbeat tasks request to rabbitmq exchange
 def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
+    errors=heartbeatAgent.sendHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentRequest'],True)
     serverErrors.update(formatErrors(errors, serverName, "hbSender"))
     con.close()
 
@@ -401,7 +249,7 @@ def subSendHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors):
 # receive heartbeat tasks request from rabbitmq queue
 def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks):
     con=pika.BlockingConnection(pika.URLParameters(mqConf['amqpUrl']))
-    errors=receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
+    errors=heartbeatAgent.receiveHeartBeatTasks(con,tasksToPoll,mqConf['heartbeatAgentReply'],True)
     serverErrors.update(formatErrors(errors, serverName, "hbReceiver"))
     con.close()
 
@@ -418,9 +266,6 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                 # decompose composite task to some simple tasks
                 value=task['value']
 
-                # remove alarm dict from task
-                alarmsFired=task.pop('alarmsfired',{})
-
                 if type(value)==dict:
 
                     for resultKey,resultValue in value.items():
@@ -431,18 +276,8 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                         childTask["parentkey"]=taskKey
                         childTask["value"]=resultValue
 
-                        # decompose alarm results to some simple tasks too
-                        childAlarmsFired=alarmsFired.get(resultKey,{})
-
-                        # alarmsFired set contains keys of alarms that fired during this poll
-                        childTask['alarmsfired']=set(childAlarmsFired.keys())
-
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
-                else:
-                    # alarmsFired set contains keys of alarms that fired during thiss poll
-                    task['alarmsfired']=set(alarmsFired.keys())
-                    
             else:
                 # hb value not received
                 # check if there are early decomposed (children) tasks in oldTasks with 
@@ -470,13 +305,15 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
 def useOldParameters(vTasksToPoll, oldTasks):
     for taskKey, task in vTasksToPoll.items():
         if taskKey in oldTasks.keys():
-            if 'taskStartTimeStamp' not in task.keys() and ('taskStartTimeStamp' in oldTasks[taskKey].keys()):
-                task['taskStartTimeStamp'] = oldTasks[taskKey]['taskStartTimeStamp']
+            if 'stateChangeTimeStamp' not in task.keys() and ('stateChangeTimeStamp' in oldTasks[taskKey].keys()):
+                task['stateChangeTimeStamp'] = oldTasks[taskKey]['stateChangeTimeStamp']
             if 'timeStamp' not in task.keys() and ('timeStamp' in oldTasks[taskKey].keys()):
                 task['timeStamp'] = oldTasks[taskKey]['timeStamp']
                 
                 # if results not received - then prolongate old errors, else no
-                if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()):
+                # also no prolongate errors for disabled tasks
+                if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()) and \
+                        oldTasks.get('enabled',True):
                     task['error'] = oldTasks[taskKey]['error']
 
             if 'alarmTimeStamps' not in task.keys() and ('alarmTimeStamps' in oldTasks[taskKey].keys()):
@@ -492,7 +329,7 @@ def useOldParameters(vTasksToPoll, oldTasks):
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec,serverDB,serverName,vServerErrors):
 
     # extended error check and task markup for heartbeat tasks.
-    def markHeartBeatTask(task):
+    def markHeartBeatTask(taskKey, task):
 
         # check expected results count==actual count (if specified in settings)
         expResCount=task['config'].get('resultcount',None)
@@ -505,110 +342,142 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 t.get('itemKey',None)==itemKey and \
                 t.get('agentKey',None)==agentKey and \
                 t.get('agentName',None)==agentName and \
-                t.get('enabled',True)
+                t.get('enabled',True) and \
+                t.get('value',None) is not None
             factResCount=sum([1 for t in tasksToPoll.values() if isTaskToCount(t) ])
             if expResCount!=factResCount:
-                for t in tasksToPoll.values():
-                    if isTaskToCount(t):
-                        t['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
+                task['error']="в настройках задано результатов: "+str(expResCount)+" фактически получено: "+str(factResCount)
                 return
             #end if
         #end if
 
-        # check that task received a value
-        if (task.get('value',None) is None) and (task.get('error',None) is None) and (task.get('enabled',True)):
-            task['error']="Значение не вычислено"
-            return
+        # set of alarm keys that are fired in this poll
+        alarmsFired=set()
+        alarms=task.get('alarms',{})
 
-        # modify alarmTimeStamps. Doing alarmTimeStamps.keys()==alarmsFired
+        # apply alarm formatters to task value
+        # alarm formatters structure is the same as result formatters
+        # if after applying we got a value (not [None, False, empty dict, empty list, etc ])
+        # then add mark to alarmsfired set
+        if task['value'] is not None and task.get('alarms',None):
+            try:
+                value=task['value']
+                oldValue=oldTasks.get(taskKey,{}).get('value',None)
+                assert type(value) in [int, float,bool,str]
+
+                for aKey,aData in alarms.items():
+
+                    # check value for matching alarms patterns.
+                    # if pattern is not specified - apply to all
+                    if ('pattern' not in aData.keys()) or \
+                            aData['pattern'].search(taskKey) is not None:
+                        # remember alarm if we got something true
+                        # (True, not zero, not empty string or dict etc)
+                        if formatValue(value,aData,oldValue):
+                            alarmsFired.update({aKey})
+
+            except Exception as e:
+                traceback.print_exc(file=sys.stdout)
+                task['error']="обработка оповещений: "+str(e) 
+
+        # timestamps like {alarmKey:timestamp} when alarm was firstly fired
+        # used for calc alarm duration
         alarmTimeStamps=task.get('alarmTimeStamps',{})
 
-        # if not received new alarmsFired from agent in this poll - use old alarmTimeStamps structure
-        alarmsFired=task.pop('alarmsfired',None)
-        
-        if alarmsFired is not None:
-            # remove timeStamps for alarms that not fired
-            alarmTimeStamps={k:v for k,v in alarmTimeStamps.items() if k in alarmsFired}
+        # Doing alarmTimeStamps.keys()==alarmsFired:
+        # 1. remove timeStamps for alarms that not fired
+        alarmTimeStamps={k:v for k,v in alarmTimeStamps.items() if k in alarmsFired}
 
-            # add current timeStamp only if absent in timeStamps else use old
-            for aKey in alarmsFired:
-                if aKey not in alarmTimeStamps.keys():
-                    alarmTimeStamps[aKey]=pollStartTimeStamp
+        # 2. add current timeStamp only if absent in timeStamps else use old
+        for aKey in alarmsFired:
+            if aKey not in alarmTimeStamps.keys():
+                alarmTimeStamps[aKey]=pollStartTimeStamp
 
-            # save alarmTimeStamps for getting it from oldTasks in next poll
-            task['alarmTimeStamps']=alarmTimeStamps        
-            # now alarmTimeStamps.keys()==alarmsFired, work with alarmTimeStamps
-            alarmsFired=None
+        # 3. save alarmTimeStamps for getting it from oldTasks in next poll
+        task['alarmTimeStamps']=alarmTimeStamps        
 
-        # error if one of alarms raised (show first raised alarm)
-        alarmsAll=task['config'].get('alarms',{})
+        # error if one of alarms raised out of specified duration (show first raised alarm)
+        # duration is specified as polling period count
         for aKey,aTimeStamp in alarmTimeStamps.items():
             aDuration = pollStartTimeStamp - aTimeStamp
-            if aKey in alarmsAll.keys():
-                if abs(aDuration) >= alarmsAll[aKey]['duration'] * pollingPeriodSec:
-                    task['error']="оповестить если " + aKey
+            if aKey in alarms.keys():
+                if abs(aDuration) >= alarms[aKey].get('duration',0) * pollingPeriodSec:
+                    task['error']= aKey
                     return
     # end sub
     
-    # remove all markups if exists
+    # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
-        task.pop('style', None)
+        enabled=task.get('enabled',True)
+        timeStamp=task.get('timeStamp',None)        
+        stateChangeTimeStamp = task.get('stateChangeTimeStamp', None)
+        module=task.get('module',None)
 
-        # since task is disabled - remove timestamp and value to prevent including it in oldTasks
-        # in this case alarm will not fired imidiately when task will became enabled in future
-        if task.get('enabled',True)==False:
-            task.pop('timeStamp',None)
-            task.pop('value',None)
+        # timestamp when task state changed from enabled to disabled and vise versa
+        if stateChangeTimeStamp is None or \
+                enabled != oldTasks.get(taskKey,{}).get('enabled',True):
+            stateChangeTimeStamp=pollStartTimeStamp
+            task['stateChangeTimeStamp']=stateChangeTimeStamp
 
-    # common task markup. status of data recieve
-    for taskKey, task in tasksToPoll.items():
-        if not task.get('enabled',True):
-            # task is disabled
-            task['style'] = 'ign'
-        elif task.get('taskStartTimeStamp', None) is None:
-            # when data not received - set current timestamp as start point
-            # this timestamp will be used for idle time calculation for task
-            # this command will be executed only once for very task
-            task['taskStartTimeStamp']=datetime.utcnow()
-    # endfor
+        # last data received timestamp
+        if timeStamp is not None:
+            # convert from datetime to int timestamp
+            timeStamp=calendar.timegm(timeStamp.timetuple())
 
-    # common task markup. idle time
-    for task in tasksToPoll.values():
-        if task.get('style',None) is None:
-            
-            # last data received timestamp
-            timeStamp=task.get('timeStamp',False)
-            
-            # data not received. Use task first run time
-            # taskStartTimeStamp will not be shown in GUI
-            if not timeStamp:
-                timeStamp=task.get('taskStartTimeStamp',False)
-            
+        # when delay becomes > this - got alarm
+        aDuration =4 * max(task['period'], pollingPeriodSec)
+
+        if enabled:
             if timeStamp:
-                idleTime = datetime.utcnow() - timeStamp
-                idleTime = idleTime.days * 86400 + idleTime.seconds
+                # task received data and has no errors
+                # so, make extended check for heartbeat tasks (alarms, resultcount etc)
+                if module=='heartbeat' and task.get('error',None) is None:
+                    # check that task received a value
+                    if (task.get('value',None) is None):
+                        task['error']="Значение не вычислено"
+                        continue
+                    markHeartBeatTask(taskKey,task)
+            else:
+                # data not received. Use task change state time.
+                # also stateChangeTimeStamp will not be shown in GUI
+                timeStamp=stateChangeTimeStamp
+            
+            if task.get('error',None) is None:
+                # when task enabled - calc how long we not received data
+                if abs(pollStartTimeStamp - timeStamp) > aDuration :
+                    task['error'] = 'задача не присылает данные длительное время'
+                    continue
+        else:
+            # since task is disabled - remove timestamp and value to prevent including it in oldTasks
+            # in this case alarm will not fired imidiately when task will became enabled in future
+            task.pop('alarmTimeStamps',None)
+            task.pop('value',None)
+            task.pop('error',None)
 
-                if abs(idleTime) > \
-                        3 * max(task['period'], pollingPeriodSec):
-                    if task.get('error',None) is None:
-                        task['error'] = 'задача не присылает данные длительное время'
-    #end for
-
-    #additional markup for heartbeat tasks. Data value, triggers
-    # for task in tasksToPoll.values():
-    for taskKey,task in tasksToPoll.items():
-        # task not received any markup or error in standart markup process
-        # so, make extended check
-        if (task.get('module',None)=='heartbeat') and \
-                (task.get('style',None) != 'ign'):
-            # print("**********", taskKey)
-            markHeartBeatTask(task)
+            if timeStamp is None:
+                timeStamp=stateChangeTimeStamp
+            
+            # when task disabled -  calc how long we received data (but shoud not)
+            # got data from disabled qos task
+            if module not in ['heartbeat','Match'] :
+                    # more than aDuration  from state change are gone
+                    if pollStartTimeStamp - stateChangeTimeStamp > aDuration :
+                        # but for last aDuration  seconds we still receive data
+                        if pollStartTimeStamp - timeStamp < aDuration :
+                            task['error']="задача отключена, но присылает данные"
+    # endfor task
 
     # display error style in task caption
     for taskKey, task in tasksToPoll.items():
-        error=task.get('error',None)
-        if (error is not None):
+        if (task.get('error',None) is not None):
+            # task has errors
             task['style'] = 'rem'
+        elif not enabled:
+            # task is disabled
+            task['style'] = 'ign'
+        else:
+            # task is enabled and has no errors
+            task.pop('style', None)
 
 
 # create box for every agent (controlblock)
@@ -638,10 +507,9 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
                     ["style","agentKey","timeStamp","enabled","unit","value","error","itemName"]
                 if key in task.keys()})
 
-            if task.get('config',None) is not None:
-                alarms=task['config'].get('alarms',None)
-                if alarms is not None:
-                    taskData.update({'alarms':alarms})
+            alarms=task.get('alarms',None)
+            if alarms is not None:
+                taskData.update({'alarms':alarms})
 
             if task.get('style', None) == 'rem':
                 agentHasErrors.add(boxName)
@@ -723,10 +591,13 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
     # calc errors percent in pollresult ("no error" tasks/"error" tasks condition in percent)
     for poll in pollResult:
         if "error" in poll:
-            count = len(poll['data'])
+            # count of not-disabled tasks
+            count = sum([record.get("style", None) != "ign"
+                        for record in poll['data']])
             if count > 0:
-                errCount = sum([record.get("style", None) ==
-                                "rem" for record in poll['data']])
+                # count of error tasks
+                errCount = sum([record.get("style", None) == "rem"
+                    for record in poll['data']])
                 # print (errCount)
                 poll['progress'] = int(100 * errCount / count)
                 if poll['pollServer'] == poll['name']:
@@ -884,7 +755,7 @@ def applyHostAliases(allServerAliases,server,vTasks):
 def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTimeStamp,serverName,vTasksToPoll,vServerErrors):
 
     # request qos db for channel status. Which chnnels are actve now and which are not
-    channelSchedule={}
+    channelScheduledModules={}
     if serverDB:
         try:
             # zapas is seconds count after channel becomes active and before it becomes inactive
@@ -895,7 +766,7 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             # where agent - agentkey
             # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
             # bool - is task scheduled to run in specified timestamp (true) or scheduled to be paused (false)
-            channelSchedule=qosDb.getChannelScheduleStatus(serverDB, pollStartTimeStamp, zapas)
+            channelScheduledModules=qosDb.getChannelScheduledModules(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
 
@@ -903,21 +774,263 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
 
     for taskKey,taskData in vTasksToPoll.items():
         # check that task is placed inside existing heartbeat host, that is disabled
-        if hostsEnabled.get(taskData['agentName'],True)==False:
+        if hostsEnabled.get(taskData['agentName'],True)==False or \
+                taskData['module'] in ['MediaRecorder', 'MediaStreamer']:
             taskData['enabled']=False
             continue
 
+        # taskIsScheduled=False
+
         #check that qos task is paused by schedule 
         agentKey=taskData['agentKey']
-        agentDict=channelSchedule.get(agentKey,False)
-        # agentDict is presents and not empty
-        if agentDict:
+        agentDict=channelScheduledModules.get(agentKey,False)
+        # if agentDict is absent - this host is absent in schedule
+        # so, treat all such tasks as continuous
+        if agentDict != False:
             # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
-            s=re.search("^.*\.(\d*)$",taskKey)
+            s=re.search("\.(\w*)[\._](\d*)$",taskKey)
             if s:
-                channelNumber=int(s.group(1))
+                moduleName=s.group(1)
+                channelNumber=int(s.group(2))
                 # channel present in schedule
+                # else treat such task as continuous
                 if channelNumber in agentDict.keys():
-                    if agentDict[channelNumber]==False:
+                    # current task's module is present in schedule and NOT allowed to run now - disable task
+                    # some module can absent in agentdict if it not described in qosScheduleDeviceToModuleMapping
+                    # ex. when new module types are added to qos
+                    # such new modules will be treat as continuous and will raise fake errors when scheduled
+                    # update qosScheduleDeviceToModuleMapping to avoid this
+                    if moduleName not in agentDict[channelNumber]:
                         taskData['enabled']=False
                         continue
+                        # dont forget to uncomment early taskIsScheduled when debug )
+                        # taskIsScheduled=taskIsScheduled or True
+
+        # debug check that all tasks are scheduled and there is no continuous tasks
+        # if not taskIsScheduled:
+        #     taskData['error']="задача отсутствует в расписании"
+        # else:
+        #     continue
+        
+        # debug disabling for all qos tasks. testing alarms
+        # taskData['enabled']=False
+    # endfor task
+
+
+# run heartbeat agent locally in server context to process tasks with localroutingkey
+# no amqp is used to sent/receive local tasks
+def runAgentLocally(tasksToPoll,serverName,vServerErrors):
+    localTasks={k:v for k,v in tasksToPoll.items() if v.get("agentKey",None)==localRoutingKey}
+    try:
+        heartbeatAgent.processHeartBeatTasks(localTasks)
+    except Exception as e:
+        vServerErrors.update(formatErrors({str(e)}, serverName, "localAgent"))
+
+
+# format value or multivalue with formatter settings.
+# returns formatted result
+def formatValue(v,format,oldV):
+    
+    # convert v to float. Raise exception if impossible.
+    # check +-inf and nan and raises exception
+    def toFloat(v):
+        res=float(v)
+        if res!=res:
+            raise Exception("NaN values not supported")
+        if res==float("inf") or res==float("-inf"):
+            raise Exception("infinitive values not supported")
+        return res
+
+    # value is single and format is single
+    def _do1value1format(v,format):
+        
+        if v is None:
+            return None
+
+        if type(format) is not dict:
+           raise Exception("Проверьте настройки программы")
+        
+        item=format.get("item",None)
+
+        # convert to numeric value.
+        # optional parameter "decimalplaces" is supported (default is 0)
+        if item =="number":
+            params=heartbeatAgent.checkParameters(format,{
+                "decimalplaces":{"type":int,
+                                 "mandatory":False}}
+            )
+            v=toFloat(v)
+            decPlaces=params['decimalplaces']
+            if decPlaces is not None:
+                v=round(v,decPlaces)
+        # convert to boolean value.
+        # optional lists [truevalues] and [falsevalues] are supported
+        # default value is returned if not found in truevalues and falsevales
+        elif item=="bool":
+            params=heartbeatAgent.checkParameters(format,{
+                "truevalues":{"type":list,
+                              "mandatory":False},
+                "falsevalues":{"type":list,
+                               "mandatory":False},              
+                "default":{ "type":bool,
+                            "mandatory":False,
+                            "default":False},              
+                }
+            )
+
+            default=params['default']
+            trueValues=params['truevalues']
+            falseValues=params['falsevalues']
+
+            # both truevalues and falsevalues are specified
+            if (trueValues is None) and (falseValues is None):
+                trueValues=[1,'1',True,"true","True",'t','T',"y","Y"]
+                falseValues=[0,'0',False,'false','False','f','F','n',"N"]
+                if v in trueValues:
+                    v=True
+                elif v in falseValues:
+                    v=False
+                else:
+                    v=default
+            # only truevalues are specified. Default value will be ignored
+            elif trueValues is not None:
+                if v in trueValues:
+                    v=True
+                else:
+                    v=False
+            # only falsevalues are specified. Default value will be ignored
+            else:
+                if v in falseValues:
+                    v=False
+                else:
+                    v=True
+
+        # find and replace text in string value (regEx supported)
+        # mandatory strings "find" and "replace" must be specified
+        elif item=="replace":
+            params=heartbeatAgent.checkParameters(format,{
+                "find":{"type":str,
+                        "mandatory":True},
+                "replace":{"type":str,
+                           "mandatory":True},
+                "ignorecase":{"type":bool,
+                           "mandatory":False,
+                           "default":False},
+                }
+            )
+            sFind=params['find']
+            sReplace=params['replace']
+            ignoreCase=params['ignorecase']
+            
+            if ignoreCase:
+                pattern=re.compile(sFind,re.IGNORECASE)
+            else:
+                pattern=re.compile(sFind)
+            if type(v)!=str:
+                v=str(v)
+
+            v=pattern.sub(sReplace,v)
+        # add number to number value.
+        # mandatory number "value" must be specified
+        elif item=="add":
+            params=heartbeatAgent.checkParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+            v=toFloat(v)+params['value']
+        # multiply number to number value.
+        # mandatory number "value" must be specified
+        elif item=="multiply":
+            params=heartbeatAgent.checkParameters(format,{
+                "value":{"type":[int,float],
+                        "mandatory":True},
+                }
+            )
+            v=toFloat(v)*params['value']
+        # exclude tasks if got value from list specified.
+        elif item=="exclude":
+            params=heartbeatAgent.checkParameters(format,{
+                "values":{"type":list,
+                        "mandatory":True},
+                }
+            )
+            if v in params['values']:
+                v=None
+        # true if python-true value received
+        elif item=="istrue":
+            # params=checkParameters(format,{
+            #     "values":{"type":list,
+            #             "mandatory":True},
+            #     }
+            # )
+            if v:
+                v=True
+            else:
+                v=False
+        elif item=="isfalse":
+            # params=checkParameters(format,{
+            #     "values":{"type":list,
+            #             "mandatory":True},
+            #     }
+            # )
+            if v:
+                v=False
+            else:
+                v=True
+        elif item==">" or item==">=" or item=="<" or item=="<=" or item=="=" or item=="!=":
+            params=heartbeatAgent.checkParameters(format,{
+                "value":{"type":[int,float,str],
+                        "mandatory":True},
+                }
+            )
+            v2=params['value']
+            
+            # "last" keyword specifies last received value 
+            if v2=='last':
+                v2=oldV
+
+            if item==">":
+                v=(v>v2)
+            elif item==">=":
+                v=(v>=v2)
+            elif item=="<":
+                v=(v<v2)
+            elif item=="<=":
+                v=(v<=v2)
+            elif item=="=":
+                v=(v==v2)
+            elif item=="!=":
+                v=(v!=v2)
+        else:
+            raise Exception("поле item не задано либо некорректно. Проверьте настройки программы")
+            
+        return v
+    #end internal function
+
+    if type(format)!=list:
+        # format is {format}
+        return _do1value1format(v,format)
+    else:
+        # format is [{format1},{format2},...]
+        # let's apply formats turn by turn
+        for f in format:
+            v=_do1value1format(v,f)
+        return v
+    # end sub
+
+
+# apply result formatters to tasks in tasksToPoll that contains a value
+def formatTasksValues(tasksToPoll):
+    for task in tasksToPoll.values():
+        if task.get("module",None)=='heartbeat' and \
+                task.get('enabled',True) and \
+                task.get('value',None) is not None and \
+                task.get("format",None) is not None:
+            try:
+                # assert that last value is not need when formatting, only when alerting
+                task['value']=formatValue(task['value'],task['format'],None)
+            except Exception as e:
+                traceback.print_exc(file=sys.stdout)
+                task['error']="обработка результата: "+str(e)    
+

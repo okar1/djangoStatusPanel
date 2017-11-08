@@ -147,6 +147,7 @@ def getTasks(dbConnection, defaultPeriod):
         "agentName":row[1],
         "module": row[2],
         "itemName": row[4],
+        "enabled":True, # disabled tasks are excluded by sql
         "period": defaultPeriod if row[5] is None else int(row[5]),
         "serviceIp": _getAddress(row[6])
         }

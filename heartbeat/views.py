@@ -209,7 +209,7 @@ class MainView(BoxFormView):
 
                 name+=")"
 
-            if not task.get('enabled',True):
+            if not task['enabled']:
                 name += " : Задача отключена "
 
             if 'timeStamp' in task.keys() and task.get('style', None) != 'ign':

@@ -408,14 +408,14 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     
     # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
-        enabled=task.get('enabled',True)
+        taskEnabled=task.get('enabled',True)
         timeStamp=task.get('timeStamp',None)        
         stateChangeTimeStamp = task.get('stateChangeTimeStamp', None)
         module=task.get('module',None)
 
         # timestamp when task state changed from enabled to disabled and vise versa
         if stateChangeTimeStamp is None or \
-                enabled != oldTasks.get(taskKey,{}).get('enabled',True):
+                taskEnabled != oldTasks.get(taskKey,{}).get('enabled',True):
             stateChangeTimeStamp=pollStartTimeStamp
             task['stateChangeTimeStamp']=stateChangeTimeStamp
 
@@ -425,9 +425,9 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             timeStamp=calendar.timegm(timeStamp.timetuple())
 
         # when delay becomes > this - got alarm
-        aDuration =4 * max(task['period'], pollingPeriodSec)
+        aDuration = 4 * max(task['period'], pollingPeriodSec)
 
-        if enabled:
+        if taskEnabled:
             if timeStamp:
                 # task received data and has no errors
                 # so, make extended check for heartbeat tasks (alarms, resultcount etc)
@@ -472,7 +472,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         if (task.get('error',None) is not None):
             # task has errors
             task['style'] = 'rem'
-        elif not enabled:
+        elif not task.get('enabled',True):
             # task is disabled
             task['style'] = 'ign'
         else:
@@ -753,7 +753,6 @@ def applyHostAliases(allServerAliases,server,vTasks):
 # * task is presents in qos task schedule and now is paused
 # * task is placed inside existing heartbeat host, that is disabled
 def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTimeStamp,serverName,vTasksToPoll,vServerErrors):
-
     # request qos db for channel status. Which chnnels are actve now and which are not
     channelScheduledModules={}
     if serverDB:
@@ -771,12 +770,16 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
 
     hostsEnabled=allServerHostEnabled.get(serverName,{})
-
+    
     for taskKey,taskData in vTasksToPoll.items():
         # check that task is placed inside existing heartbeat host, that is disabled
         if hostsEnabled.get(taskData['agentName'],True)==False or \
-                taskData['module'] in ['MediaRecorder', 'MediaStreamer']:
+                taskData['module'] in ['MediaRecorder', 'MediaStreamer','RawDataRecorder']:
             taskData['enabled']=False
+            continue
+
+        # schedule feature not supported
+        if channelScheduledModules is None:
             continue
 
         # taskIsScheduled=False
@@ -1022,7 +1025,9 @@ def formatValue(v,format,oldV):
 
 # apply result formatters to tasks in tasksToPoll that contains a value
 def formatTasksValues(tasksToPoll):
-    for task in tasksToPoll.values():
+    task2remove=set()
+
+    for taskKey, task in tasksToPoll.items():
         if task.get("module",None)=='heartbeat' and \
                 task.get('enabled',True) and \
                 task.get('value',None) is not None and \
@@ -1032,5 +1037,12 @@ def formatTasksValues(tasksToPoll):
                 task['value']=formatValue(task['value'],task['format'],None)
             except Exception as e:
                 traceback.print_exc(file=sys.stdout)
-                task['error']="обработка результата: "+str(e)    
+                task['error']="обработка результата: "+str(e)
 
+            # remove tasks that returned None after applying format
+            if task['value'] is None:
+                task2remove.add(taskKey)
+
+    # remove tasks that returned none
+    for t2r in task2remove:
+        tasksToPoll.pop(t2r)

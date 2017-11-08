@@ -189,6 +189,7 @@ def getOriginatorIdForAlertType(dbConnection, alertType):
 # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
 # set  - is modules that scheduled to run in specified timestamp
 # if some channel id is absent - this channel is absent in schedule
+# when schedule not supported by qos - returns none
 def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     
     # check that db schema supports task schedule feature 
@@ -205,7 +206,7 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     
     # table "task" not exists in db, so schedule feature is not supported
     if rows[0][0]!= True :
-        return {}
+        return None
 
     sql="""
         SELECT 
@@ -222,6 +223,9 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     cur = dbConnection.cursor()
     cur.execute(sql)
     rows = cur.fetchall()
+
+    if len(rows)==0:
+        return None
 
     def _getModulesForDevice(channelIsActive,device,allowedGroups):
         # if channel is not scheduled now - cancel module search

@@ -23,6 +23,8 @@ import re
 import subprocess
 import sys
 import traceback
+import random
+import string
 # import binascii
 
 import platform
@@ -44,7 +46,7 @@ sendToExchange='heartbeatAgentReply'
 maxMsgTotal=50000
 amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
-agentProtocolVersion=2
+agentProtocolVersion=3
 localRoutingKey="local"
 isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
 
@@ -678,6 +680,38 @@ def taskShellTableValue(command,include,utf8,timeout):
 
     return parseString(commandResult,include)
 
+
+def taskHtmlTableValue(url,include):
+    pass
+    # if item=="htmltable":
+    #     task['value']=taskHtmlTableValue(**checkParameters(taskConfig,{
+    #         "include":{ "type":list,
+    #                     "mandatory":True},
+    #         }))
+
+
+# makes a request to last recorded file size through RED5 http url.
+# returns string with file size or error text
+# applyto like {'home3.MediaRecorder.16': {'serviceIp': '10.10.10.10:8077'}, 'home.MediaRecorder.5': {'serviceIp': '10.10.10.10:8077'}
+def taskMediaRecorderControl(applyTo):
+    assert type(applyTo)==dict
+    res={}
+
+    for taskKey, taskValue in applyTo.items():
+        if taskKey=="home.MediaRecorder.5":
+            continue
+        if taskKey=="home2.MediaRecorder.4":
+            v="0"
+        else:
+            v=''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+            
+        res.update({
+            taskKey:v
+            })
+        # taskUrl="http://{0}/qligentPlayer/"
+    return res
+
+
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
 # keys in every heartbeat task : 
 #   module - always == "heartbeat"
@@ -778,6 +812,18 @@ def processHeartBeatTasks(tasksToPoll):
                                 "default":None},
 
                     }))
+            elif item=="htmltable":
+                task['value']=taskHtmlTableValue(**checkParameters(taskConfig,{
+                    "url":{"type":str,
+                           "mandatory":True},
+                    "include":{ "type":list,
+                                "mandatory":True},
+                    }))
+            elif item=="MediaRecorderControl":
+                task['value']=taskMediaRecorderControl(**checkParameters(taskConfig,{
+                    "applyTo":{"type":dict,
+                           "mandatory":True}
+                    }))
 
             else:
                 raise Exception( "Неизвестный тип элемента данных: "+item)
@@ -794,8 +840,14 @@ def processHeartBeatTasks(tasksToPoll):
                 task2remove.add(taskKey)
             else:
                 if type(value)==dict:
-                    # and for composite tasks - remove None results too
-                    task['value']={k:v for k,v in value.items() if v is not None}
+                    # for composite tasks - remove None results too
+                    if item in ["MediaRecorderControl"]:   
+                        # items that returns full task keys - copy "as is"
+                        task['value']={k : v for k,v in value.items() if v is not None}
+                    else:
+                        # items that returns "short" task keys - append parent task key
+                        task['value']={taskKey+"."+ k : v for k,v in value.items() if v is not None}
+
                     # not return empty composite tasks. Return  none instead
                     if not task['value']:
                         task['value']=None
@@ -841,4 +893,3 @@ def agentStart():
 
 if __name__ == '__main__':
     agentStart()
-    # ''.join(random.choices(string.ascii_uppercase + string.digits, k=20))

@@ -266,15 +266,22 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                 # decompose composite task to some simple tasks
                 value=task['value']
 
-                if type(value)==dict:
 
-                    for resultKey,resultValue in value.items():
-                        childTaskKey=taskKey+"."+resultKey
-                        childTask=task.copy()
+                if type(value)==dict:
+                    # got a composite task
+                    for childTaskKey,childTaskValue in value.items():
+                        # scenario 1: tasks like MediarecorderControl are applying to another tasks like "MediaRecorder"
+                        # for such tasks childTaskKey is key of "target" and it already presents in tasksToPoll
+                        # so, we update target with "parentkey", "value", and "timestamp" fields and leave another keys 
+                        # unchanged (incl ModuleName)
+                        # scenario 2: if task not applying to another tasks - we just take copy of parent task 
+                        # and update this copy with child task's "parentkey", "value", and "timestamp"
+                        childTask=tasksToPoll.get(childTaskKey,task.copy())
                         # tasks with "parentkey" property set are the children tasks
                         # ex. cpu load of core #1 #2 ... #24 are the children tasks of "cpu load"
                         childTask["parentkey"]=taskKey
-                        childTask["value"]=resultValue
+                        childTask["value"]=childTaskValue
+                        childTask.update({k:v for k,v in task.items() if k in ['timeStamp','format','alarms','error','config']})
 
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
@@ -327,7 +334,6 @@ def useOldParameters(vTasksToPoll, oldTasks):
 
 
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec,serverDB,serverName,vServerErrors):
-
     # extended error check and task markup for heartbeat tasks.
     def markHeartBeatTask(taskKey, task):
 
@@ -408,10 +414,12 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     
     # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
+        module=task.get('module',None)
+        
+
         taskEnabled=task['enabled']
         timeStamp=task.get('timeStamp',None)        
         stateChangeTimeStamp = task.get('stateChangeTimeStamp', None)
-        module=task.get('module',None)
 
         # timestamp when task state changed from enabled to disabled and vise versa
         if stateChangeTimeStamp is None or \
@@ -431,7 +439,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             if timeStamp:
                 # task received data and has no errors
                 # so, make extended check for heartbeat tasks (alarms, resultcount etc)
-                if module=='heartbeat' and task.get('error',None) is None:
+                if task.get('error',None) is None:
                     # check that task received a value
                     if (task.get('value',None) is None):
                         task['error']="Значение не вычислено"
@@ -459,7 +467,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             
             # when task disabled -  calc how long we received data (but shoud not)
             # got data from disabled qos task
-            if module not in ['heartbeat','Match'] :
+            if module not in ['Match'] :
                     # more than aDuration  from state change are gone
                     if pollStartTimeStamp - stateChangeTimeStamp > aDuration :
                         # but for last aDuration  seconds we still receive data
@@ -1028,8 +1036,9 @@ def formatTasksValues(tasksToPoll):
     task2remove=set()
 
     for taskKey, task in tasksToPoll.items():
-        if task.get("module",None)=='heartbeat' and \
-                task['enabled'] and \
+        if taskKey=="home2.MediaRecorder.4":
+            print(task)
+        if      task['enabled'] and \
                 task.get('value',None) is not None and \
                 task.get("format",None) is not None:
             try:
@@ -1069,27 +1078,19 @@ def fillApplyTo(tasksToPoll,vHbTasks):
             # assert type(applyTo)==list
             applyTo=set(applyTo)
 
-            # if filter not specified - use all tasks
-            if "" in applyTo:
-                applyTo={""}
+            # empty set: apply to all names
+            # todo: name filter instead of "False"
+            if not applyTo or False:
+                target=settiings[item]['target']
+                useFields=settiings[item]['useFields']
 
-            target=settiings[item]['target']
-            useFields=settiings[item]['useFields']
+                newApplyTo={}
+                for taskKey, taskData in tasksToPoll.items():
+                    if not taskData['enabled'] or taskData['module'] not in target:
+                        continue
 
-            newApplyTo={}
-            for taskKey, taskData in tasksToPoll.items():
-                if not taskData['enabled'] or taskData['module'] not in target:
-                    continue
-
-                newApplyTo.update({taskKey:{
-                    f : taskData.get(f,None)
-                        for f in useFields
-                    }})
-            hbtask['config']['applyTo']=newApplyTo
-
-
-
-
-
-
-
+                    newApplyTo.update({taskKey:{
+                        f : taskData.get(f,None)
+                            for f in useFields
+                        }})
+                hbtask['config']['applyTo']=newApplyTo

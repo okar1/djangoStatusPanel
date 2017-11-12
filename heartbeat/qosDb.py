@@ -135,24 +135,29 @@ def getTasks(dbConnection, defaultPeriod):
     def _getAddress(url):
         if url is None:
             return None
-        pattern=r"\d*://(.*?)/.*"
+        pattern=r"\d*://(.*+):(\d+)/.*"
         r=re.search(pattern,url)
         if r is not None:
-            return r.group(1)
+            return (r.group(1),r.group(2))
         else:
            return None
 
-    result = {row[3]: {
-        "agentKey": row[0],
-        "agentName":row[1],
-        "module": row[2],
-        "itemName": row[4],
-        "enabled":True, # disabled tasks are excluded by sql
-        "period": defaultPeriod if row[5] is None else int(row[5]),
-        "serviceIp": _getAddress(row[6])
-        }
-            for row in rows}
-    return (error, result)
+    res={}
+    for row in rows:
+        tmp=_getAddress(row[6])
+        res.update({
+            row[3]: {
+                "agentKey": row[0],
+                "agentName":row[1],
+                "module": row[2],
+                "itemName": row[4],
+                "enabled":True, # disabled tasks are excluded by sql
+                "period": defaultPeriod if row[5] is None else int(row[5]),
+                "serviceIp": tmp[0] if tmp is not None else None,
+                "servicePort": tmp[1] if tmp is not None else None,
+                }            
+            })
+    return (error, res)
 
 
 

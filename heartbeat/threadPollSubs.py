@@ -9,7 +9,8 @@ from .threadMqConsumers import MqConsumers
 from . import timeDB
 import re
 import calendar
-
+import traceback
+import sys
 
 timeStampFormat="%Y%m%d%H%M%S"
 matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
@@ -1071,6 +1072,8 @@ def fillApplyTo(tasksToPoll,vHbTasks):
 
         }
     }
+    appliedTasks=set()
+
     for hbtask in vHbTasks.values():
         applyTo=hbtask.setdefault('config',{}).pop('applyTo',None)
         item=hbtask['config'].get('item',None)
@@ -1109,8 +1112,17 @@ def fillApplyTo(tasksToPoll,vHbTasks):
                             continue
 
                     newApplyTo.update({taskKey:{
-                        "127.0.0.1" if localmode and f=="serviceIp" else f \
+                        "127.0.0.1" if localMode and f=="serviceIp" else f \
                         : taskData.get(f,None)
                             for f in useFields
                         }})
+                    appliedTasks.add(taskKey)
                 hbtask['config']['applyTo']=newApplyTo
+    # endfor hbtasks
+
+    target=settiings['MediaRecorderControl']['target']
+    # disable target (mediaRecorder) tasks that was not applied from any mediaRecorderControl
+    for taskKey, taskData in tasksToPoll.items():
+        if taskData['module'] in target and taskKey not in appliedTasks:
+            taskData['enabled']=False
+

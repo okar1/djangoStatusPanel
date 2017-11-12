@@ -23,9 +23,7 @@ import re
 import subprocess
 import sys
 import traceback
-import random
-import string
-# import binascii
+import requests
 
 import platform
 
@@ -587,27 +585,30 @@ def taskOhwTableValue(include):
         return res
 
 
-# parses string with every regex in include. Return key:value dict.
+# parses string with every regex in include. Return key:value dict for regex with 2 groups and a list of values for regex with 1 group
+# all regexes in include must have identical format (all 1-group or all 2-group)
 # See taskShellTableValue description for more details
 # no error handling
 def parseString(string,include):
     assert type(string)==str
     assert type(include)==list
 
-    res={}
-    counter=0
+    res=None
 
     for pattern in include:
         match=re.findall(pattern,string)
         if match:
             for item in match:
                 if type(item)==str and item!='':
-                    # got only value from regex. Auto generate the key
-                    res[str(counter)]=item
-                    counter+=1
+                    if res is None:
+                        res=[]
+                    # got only value from regex. Retrn list
+                    res+=[item]
                 elif type(item)==tuple:
+                    if res is None:
+                        res={}                    
                     if len(item)==2:
-                        # got key and value from regex
+                        # got key and value from regex. Return dict
                         res[item[0]]=item[1]
                     else:
                         raise Exception("regex должен возвращать строго 1 или 2 группы. Проверьте настройки ПО.")
@@ -681,34 +682,64 @@ def taskShellTableValue(command,include,utf8,timeout):
     return parseString(commandResult,include)
 
 
+# like taskShellTableValue, but parses GET request result
 def taskHtmlTableValue(url,include):
-    pass
-    # if item=="htmltable":
-    #     task['value']=taskHtmlTableValue(**checkParameters(taskConfig,{
-    #         "include":{ "type":list,
-    #                     "mandatory":True},
-    #         }))
+    print(url)
+    r=requests.get(url)
+    if r.status_code!=200:
+        raise Exception("Ошибка HTTP "+str(r.status_code))
+    text=r.text
+    return parseString(text,include)
 
 
 # makes a request to last recorded file size through RED5 http url.
 # returns string with file size or error text
-# applyto like {'home3.MediaRecorder.16': {'serviceIp': '10.10.10.10:8077'}, 'home.MediaRecorder.5': {'serviceIp': '10.10.10.10:8077'}
+# applyto like {'nn02.MediaRecorder.8007': {'serviceIp': '87.245.203.38', 'servicePort':80}, }
 def taskMediaRecorderControl(applyTo):
+    # sample link: http://87.245.203.38/qligentPlayer/streams/8007/2017_11_12/
+
+    def _do1task(taskKey,taskData):
+        tmp=re.search(r"(.+)\.(.+)$",taskKey)
+        if tmp is None:
+            raise Exception("Ошибка при обработке taskKey")
+        # agentKeyAndModule=tmp.groups(1)
+        taskId=tmp.group(2)
+        url='http://{0}:{1}/qligentPlayer/streams/{2}'.format(taskData['serviceIp'],taskData['servicePort'],taskId)
+        template=["/qligentPlayer/streams/{0}/([\d_]*)/".format(taskId)]
+        try:
+            datesList=taskHtmlTableValue(url,template)
+        except Exception:
+            return "Ошибка при получении данных MediaRecorder (0). Проверьте службу Red5."
+
+        if not datesList:
+            return "Ошибка при получении данных MediaRecorder (1). Проверьте службу Red5."
+        
+        lastDate=datesList[len(datesList)-1]
+        url+='/'+lastDate
+        template=[r"""
+                (?sx)
+                \.flv
+                .*?
+                align="right"><tt>
+                ([\d\.]*)
+            """]
+        try:
+            flvSizeList=taskHtmlTableValue(url,template)
+        except Exception:
+            return "Ошибка при получении сведений о видеофайлах (0)."
+
+        if not flvSizeList:
+            return "Ошибка при получении сведений о видеофайлах (1)."
+        else:    
+            return flvSizeList[len(flvSizeList)-1]
+
+
     assert type(applyTo)==dict
     res={}
-
-    for taskKey, taskValue in applyTo.items():
-        if taskKey=="home.MediaRecorder.5":
-            continue
-        if taskKey=="home2.MediaRecorder.4":
-            v="0"
-        else:
-            v=''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
-            
+    for taskKey, taskData in applyTo.items():
         res.update({
-            taskKey:v
+            taskKey:_do1task(taskKey,taskData)
             })
-        # taskUrl="http://{0}/qligentPlayer/"
     return res
 
 
@@ -722,6 +753,7 @@ def taskMediaRecorderControl(applyTo):
 #   value - string or number with result
 #   timeStamp - value timestamp
 def processHeartBeatTasks(tasksToPoll):
+    
     task2remove=set()
 
     for taskKey,task in tasksToPoll.items():

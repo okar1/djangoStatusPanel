@@ -135,7 +135,7 @@ def getTasks(dbConnection, defaultPeriod):
     def _getAddress(url):
         if url is None:
             return None
-        pattern=r"\d*://(.*+):(\d+)/.*"
+        pattern=r"\d*://(.+):(\d+)/.*"
         r=re.search(pattern,url)
         if r is not None:
             return (r.group(1),r.group(2))

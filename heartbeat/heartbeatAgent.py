@@ -48,8 +48,6 @@ timeStampFormat="%Y%m%d%H%M%S"
 agentProtocolVersion=3
 localRoutingKey="local"
 isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
-localRoutingKey="local"
-isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
 
 presets={
     "smLsiRaid":{"item":"snmptable","oid":"1.3.6.1.4.1.10876.100.1.11", "indexcol":7, "datacol":27},

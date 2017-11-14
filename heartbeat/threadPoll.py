@@ -83,6 +83,12 @@ def threadPoll():
                     # in this case box of such taskToPoll will be merged into host's box
                     subs.applyHostAliases(hostAliases,server,tasksToPoll)
 
+
+                    # some heartbeat tasks can have "applyTo" field, wich means this task takes another tasks parameters as argument
+                    # ex. task "MediaRecorderControl" is applying to tasks "mediaRecorder"
+                    # here we process applyTo field from hb task settings and substitute names with actual task id and parameters
+                    subs.fillApplyTo(tasksToPoll,hbTasks)
+
                 # add heartbeat tasks to taskstopoll.
                 tasksToPoll.update(hbTasks)
                 hbTasks=None

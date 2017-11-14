@@ -135,23 +135,29 @@ def getTasks(dbConnection, defaultPeriod):
     def _getAddress(url):
         if url is None:
             return None
-        pattern=r"\d*://(.*?)/.*"
+        pattern=r"\d*://(.+):(\d+)/.*"
         r=re.search(pattern,url)
         if r is not None:
-            return r.group(1)
+            return (r.group(1),r.group(2))
         else:
            return None
 
-    result = {row[3]: {
-        "agentKey": row[0],
-        "agentName":row[1],
-        "module": row[2],
-        "itemName": row[4],
-        "period": defaultPeriod if row[5] is None else int(row[5]),
-        "serviceIp": _getAddress(row[6])
-        }
-            for row in rows}
-    return (error, result)
+    res={}
+    for row in rows:
+        tmp=_getAddress(row[6])
+        res.update({
+            row[3]: {
+                "agentKey": row[0],
+                "agentName":row[1],
+                "module": row[2],
+                "itemName": row[4],
+                "enabled":True, # disabled tasks are excluded by sql
+                "period": defaultPeriod if row[5] is None else int(row[5]),
+                "serviceIp": tmp[0] if tmp is not None else None,
+                "servicePort": tmp[1] if tmp is not None else None,
+                }            
+            })
+    return (error, res)
 
 
 
@@ -189,6 +195,7 @@ def getOriginatorIdForAlertType(dbConnection, alertType):
 # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
 # set  - is modules that scheduled to run in specified timestamp
 # if some channel id is absent - this channel is absent in schedule
+# when schedule not supported by qos - returns none
 def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     
     # check that db schema supports task schedule feature 
@@ -205,7 +212,7 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     
     # table "task" not exists in db, so schedule feature is not supported
     if rows[0][0]!= True :
-        return {}
+        return None
 
     sql="""
         SELECT 
@@ -222,6 +229,9 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     cur = dbConnection.cursor()
     cur.execute(sql)
     rows = cur.fetchall()
+
+    if len(rows)==0:
+        return None
 
     def _getModulesForDevice(channelIsActive,device,allowedGroups):
         # if channel is not scheduled now - cancel module search

@@ -23,9 +23,10 @@ import re
 import subprocess
 import sys
 import traceback
-# import binascii
+import requests
 
 import platform
+from concurrent import futures
 
 if platform.system()=='Windows':
     import wmi
@@ -44,7 +45,9 @@ sendToExchange='heartbeatAgentReply'
 maxMsgTotal=50000
 amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
-agentProtocolVersion=2
+agentProtocolVersion=3
+localRoutingKey="local"
+isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
 localRoutingKey="local"
 isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
 
@@ -79,33 +82,30 @@ presets={
     # ==============================================================================
     #  *GPS_NMEA(6)     .GPS.            0 l    -   64    0    0.000    0.000   0.000
     #  51.140.127.197  128.138.141.172  2 u   23   64    1   75.455  117.537   0.000
-    "ntpSyncAgoSec":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":10,
+    "ntpSyncAgoSec":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":20,
         "include":[r"""
             (?x)
-               ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key
-               \s*\S*                # refid field
-               \s*\S*                # st field
-               \s*\S*                # t field
-               \s*(\S*)              # when field: value
-               \s*\S*                # poll field
-               \s*\S*                # reach field
-               \s*\S*                # delay field
-               \s*\S*                # offset field
-               \s*\S*                # jitter field
+               ([\w\.\S]+)  # remote field: to filter header it must contain dot or parentheses: key
+               .* \s[lumb-]\s
+               \s*(\S+)              # when field: value
+               \s*\S+                # poll field
+               \s*\S+                # reach field
+               \s*\S+                # delay field
+               \s*\S+                # offset field
+               \s*\S+                # jitter field
         """]},
-    "ntpSyncOffset":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":10,
+    "ntpSyncOffset":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":20,
         "include":[r"""
             (?x)
-               ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key
-               \s*\S*                # refid field
-               \s*\S*                # st field
-               \s*\S*                # t field
-               \s*\S*                # when field
-               \s*\S*                # poll field
-               \s*\S*                # reach field
-               \s*\S*                # delay field
-               \s*(\S*)              # offset field: value
-               \s*\S*                # jitter field
+            (?x)
+               ([\w\.\S]+)  # remote field: to filter header it must contain dot or parentheses: key
+               .* \s[lumb-]\s
+               \s*\S+                # when field
+               \s*\S+                # poll field
+               \s*\S+                # reach field
+               \s*\S+                # delay field
+               \s*(\S+)              # offset field: value
+               \s*\S+                # jitter field
         """]},
     "intelRaid":{"item":"shell", "command":"c:\\monitoring\\rstcli64.exe -I -v", "utf8":True, "timeout":3,
         "include":[r"""
@@ -585,27 +585,30 @@ def taskOhwTableValue(include):
         return res
 
 
-# parses string with every regex in include. Return key:value dict.
+# parses string with every regex in include. Return key:value dict for regex with 2 groups and a list of values for regex with 1 group
+# all regexes in include must have identical format (all 1-group or all 2-group)
 # See taskShellTableValue description for more details
 # no error handling
 def parseString(string,include):
     assert type(string)==str
     assert type(include)==list
 
-    res={}
-    counter=0
+    res=None
 
     for pattern in include:
         match=re.findall(pattern,string)
         if match:
             for item in match:
                 if type(item)==str and item!='':
-                    # got only value from regex. Auto generate the key
-                    res[str(counter)]=item
-                    counter+=1
+                    if res is None:
+                        res=[]
+                    # got only value from regex. Retrn list
+                    res+=[item]
                 elif type(item)==tuple:
+                    if res is None:
+                        res={}                    
                     if len(item)==2:
-                        # got key and value from regex
+                        # got key and value from regex. Return dict
                         res[item[0]]=item[1]
                     else:
                         raise Exception("regex должен возвращать строго 1 или 2 группы. Проверьте настройки ПО.")
@@ -678,6 +681,84 @@ def taskShellTableValue(command,include,utf8,timeout):
 
     return parseString(commandResult,include)
 
+
+# like taskShellTableValue, but parses GET request result
+def taskHtmlTableValue(url,include):
+    r=requests.get(url)
+    if r.status_code!=200:
+        raise Exception("Ошибка HTTP "+str(r.status_code))
+    text=r.text
+    return parseString(text,include)
+
+
+# makes a request to last recorded file size through RED5 http url.
+# returns string with file size or error text
+# applyto like {'nn02.MediaRecorder.8007': {'serviceIp': '87.245.203.38', 'servicePort':80}, }
+def taskMediaRecorderControl(applyTo):
+    # sample link: http://87.245.203.38/qligentPlayer/streams/8007/2017_11_12/
+
+    def _do1task(taskKey,taskData):
+        tmp=re.search(r"(.+)\.(.+)$",taskKey)
+        if tmp is None:
+            raise Exception("Ошибка при обработке taskKey")
+        # agentKeyAndModule=tmp.groups(1)
+        taskId=tmp.group(2)
+        url='http://{0}:{1}/qligentPlayer/streams/{2}'.format(taskData['serviceIp'],taskData['servicePort'],taskId)
+        template=["/qligentPlayer/streams/{0}/([\d_]*)/".format(taskId)]
+        try:
+            datesList=taskHtmlTableValue(url,template)
+        except Exception:
+            return "Ошибка при получении данных MediaRecorder (0). Проверьте службу Red5."
+
+        if not datesList:
+            return "Ошибка при получении данных MediaRecorder (1). Проверьте службу Red5."
+        
+        lastDate=datesList[len(datesList)-1]
+        url+='/'+lastDate
+        template=[r"""
+                (?sx)
+                \.flv
+                .*?
+                align="right"><tt>
+                ([\d\.]*)
+            """]
+        try:
+            flvSizeList=taskHtmlTableValue(url,template)
+        except Exception:
+            return "Ошибка при получении сведений о видеофайлах (0)."
+
+        if not flvSizeList:
+            return "Ошибка при получении сведений о видеофайлах (1)."
+        else:    
+            return flvSizeList[len(flvSizeList)-1]
+
+
+    assert type(applyTo)==dict
+    # non-multithreading version
+    # res={}
+    # for taskKey, taskData in applyTo.items():
+    #     res.update({
+    #         taskKey:_do1task(taskKey,taskData)
+    #         })
+
+    # multithreading version
+    # 10 threads parallel
+    futureDict = {futures.ThreadPoolExecutor(10).submit(_do1task, taskKey,taskData): (taskKey,taskData)
+                for taskKey, taskData in applyTo.items()}
+    res={}
+    for future in futures.as_completed(futureDict):
+        taskKey=futureDict[future][0]
+        taskData=futureDict[future][0]
+        if future.exception() is not None:
+            print('%r generated an exception: %s' % (taskKey,future.exception()))
+            taskData['error']=future.exception()
+        else:
+            res.update({
+                taskKey:future.result()
+                })
+    return res
+
+
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
 # keys in every heartbeat task : 
 #   module - always == "heartbeat"
@@ -688,6 +769,7 @@ def taskShellTableValue(command,include,utf8,timeout):
 #   value - string or number with result
 #   timeStamp - value timestamp
 def processHeartBeatTasks(tasksToPoll):
+    
     task2remove=set()
 
     for taskKey,task in tasksToPoll.items():
@@ -778,6 +860,18 @@ def processHeartBeatTasks(tasksToPoll):
                                 "default":None},
 
                     }))
+            elif item=="htmltable":
+                task['value']=taskHtmlTableValue(**checkParameters(taskConfig,{
+                    "url":{"type":str,
+                           "mandatory":True},
+                    "include":{ "type":list,
+                                "mandatory":True},
+                    }))
+            elif item=="MediaRecorderControl":
+                task['value']=taskMediaRecorderControl(**checkParameters(taskConfig,{
+                    "applyTo":{"type":dict,
+                           "mandatory":True}
+                    }))
 
             else:
                 raise Exception( "Неизвестный тип элемента данных: "+item)
@@ -794,8 +888,14 @@ def processHeartBeatTasks(tasksToPoll):
                 task2remove.add(taskKey)
             else:
                 if type(value)==dict:
-                    # and for composite tasks - remove None results too
-                    task['value']={k:v for k,v in value.items() if v is not None}
+                    # for composite tasks - remove None results too
+                    if item in ["MediaRecorderControl"]:   
+                        # items that returns full task keys - copy "as is"
+                        task['value']={k : v for k,v in value.items() if v is not None}
+                    else:
+                        # items that returns "short" task keys - append parent task key
+                        task['value']={taskKey+"."+ k : v for k,v in value.items() if v is not None}
+
                     # not return empty composite tasks. Return  none instead
                     if not task['value']:
                         task['value']=None
@@ -841,4 +941,3 @@ def agentStart():
 
 if __name__ == '__main__':
     agentStart()
-    # ''.join(random.choices(string.ascii_uppercase + string.digits, k=20))

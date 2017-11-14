@@ -9,7 +9,8 @@ from .threadMqConsumers import MqConsumers
 from . import timeDB
 import re
 import calendar
-
+import traceback
+import sys
 
 timeStampFormat="%Y%m%d%H%M%S"
 matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
@@ -259,22 +260,29 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
     tasksToAdd={}
     tasksToRemove=set()
     for taskKey,task in tasksToPoll.items():
-        if task.get("module",None)=='heartbeat' and task.get('enabled',False):
+        if task.get("module",None)=='heartbeat' and task['enabled']:
 
             if "value" in task.keys():
                 # hb value received and this is composite task
                 # decompose composite task to some simple tasks
                 value=task['value']
 
-                if type(value)==dict:
 
-                    for resultKey,resultValue in value.items():
-                        childTaskKey=taskKey+"."+resultKey
-                        childTask=task.copy()
+                if type(value)==dict:
+                    # got a composite task
+                    for childTaskKey,childTaskValue in value.items():
+                        # scenario 1: tasks like MediarecorderControl are applying to another tasks like "MediaRecorder"
+                        # for such tasks childTaskKey is key of "target" and it already presents in tasksToPoll
+                        # so, we update target with "parentkey", "value", and "timestamp" fields and leave another keys 
+                        # unchanged (incl ModuleName)
+                        # scenario 2: if task not applying to another tasks - we just take copy of parent task 
+                        # and update this copy with child task's "parentkey", "value", and "timestamp"
+                        childTask=tasksToPoll.get(childTaskKey,task.copy())
                         # tasks with "parentkey" property set are the children tasks
                         # ex. cpu load of core #1 #2 ... #24 are the children tasks of "cpu load"
                         childTask["parentkey"]=taskKey
-                        childTask["value"]=resultValue
+                        childTask["value"]=childTaskValue
+                        childTask.update({k:v for k,v in task.items() if k in ['timeStamp','format','alarms','error','config']})
 
                         tasksToAdd.update({childTaskKey:childTask})
                         tasksToRemove.add(taskKey)
@@ -313,7 +321,7 @@ def useOldParameters(vTasksToPoll, oldTasks):
                 # if results not received - then prolongate old errors, else no
                 # also no prolongate errors for disabled tasks
                 if 'error' not in task.keys() and ('error' in oldTasks[taskKey].keys()) and \
-                        oldTasks.get('enabled',True):
+                        oldTasks[taskKey]['enabled']:
                     task['error'] = oldTasks[taskKey]['error']
 
             if 'alarmTimeStamps' not in task.keys() and ('alarmTimeStamps' in oldTasks[taskKey].keys()):
@@ -327,7 +335,6 @@ def useOldParameters(vTasksToPoll, oldTasks):
 
 
 def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, pollingPeriodSec,serverDB,serverName,vServerErrors):
-
     # extended error check and task markup for heartbeat tasks.
     def markHeartBeatTask(taskKey, task):
 
@@ -342,7 +349,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                 t.get('itemKey',None)==itemKey and \
                 t.get('agentKey',None)==agentKey and \
                 t.get('agentName',None)==agentName and \
-                t.get('enabled',True) and \
+                t['enabled'] and \
                 t.get('value',None) is not None
             factResCount=sum([1 for t in tasksToPoll.values() if isTaskToCount(t) ])
             if expResCount!=factResCount:
@@ -408,14 +415,16 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     
     # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
-        enabled=task.get('enabled',True)
+        module=task.get('module',None)
+        
+
+        taskEnabled=task['enabled']
         timeStamp=task.get('timeStamp',None)        
         stateChangeTimeStamp = task.get('stateChangeTimeStamp', None)
-        module=task.get('module',None)
 
         # timestamp when task state changed from enabled to disabled and vise versa
         if stateChangeTimeStamp is None or \
-                enabled != oldTasks.get(taskKey,{}).get('enabled',True):
+                taskEnabled != oldTasks.get(taskKey,{})['enabled']:
             stateChangeTimeStamp=pollStartTimeStamp
             task['stateChangeTimeStamp']=stateChangeTimeStamp
 
@@ -425,13 +434,13 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             timeStamp=calendar.timegm(timeStamp.timetuple())
 
         # when delay becomes > this - got alarm
-        aDuration =4 * max(task['period'], pollingPeriodSec)
+        aDuration = 4 * max(task['period'], pollingPeriodSec)
 
-        if enabled:
+        if taskEnabled:
             if timeStamp:
                 # task received data and has no errors
                 # so, make extended check for heartbeat tasks (alarms, resultcount etc)
-                if module=='heartbeat' and task.get('error',None) is None:
+                if task.get('error',None) is None:
                     # check that task received a value
                     if (task.get('value',None) is None):
                         task['error']="Значение не вычислено"
@@ -459,7 +468,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             
             # when task disabled -  calc how long we received data (but shoud not)
             # got data from disabled qos task
-            if module not in ['heartbeat','Match'] :
+            if module not in ['Match'] :
                     # more than aDuration  from state change are gone
                     if pollStartTimeStamp - stateChangeTimeStamp > aDuration :
                         # but for last aDuration  seconds we still receive data
@@ -472,7 +481,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
         if (task.get('error',None) is not None):
             # task has errors
             task['style'] = 'rem'
-        elif not enabled:
+        elif not task['enabled']:
             # task is disabled
             task['style'] = 'ign'
         else:
@@ -753,7 +762,6 @@ def applyHostAliases(allServerAliases,server,vTasks):
 # * task is presents in qos task schedule and now is paused
 # * task is placed inside existing heartbeat host, that is disabled
 def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTimeStamp,serverName,vTasksToPoll,vServerErrors):
-
     # request qos db for channel status. Which chnnels are actve now and which are not
     channelScheduledModules={}
     if serverDB:
@@ -771,12 +779,16 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
 
     hostsEnabled=allServerHostEnabled.get(serverName,{})
-
+    
     for taskKey,taskData in vTasksToPoll.items():
         # check that task is placed inside existing heartbeat host, that is disabled
         if hostsEnabled.get(taskData['agentName'],True)==False or \
-                taskData['module'] in ['MediaRecorder', 'MediaStreamer']:
+                taskData['module'] in ['MediaStreamer','RawDataRecorder']:
             taskData['enabled']=False
+            continue
+
+        # schedule feature not supported
+        if channelScheduledModules is None:
             continue
 
         # taskIsScheduled=False
@@ -1022,9 +1034,12 @@ def formatValue(v,format,oldV):
 
 # apply result formatters to tasks in tasksToPoll that contains a value
 def formatTasksValues(tasksToPoll):
-    for task in tasksToPoll.values():
-        if task.get("module",None)=='heartbeat' and \
-                task.get('enabled',True) and \
+    task2remove=set()
+
+    for taskKey, task in tasksToPoll.items():
+        if taskKey=="home2.MediaRecorder.4":
+            print(task)
+        if      task['enabled'] and \
                 task.get('value',None) is not None and \
                 task.get("format",None) is not None:
             try:
@@ -1032,5 +1047,82 @@ def formatTasksValues(tasksToPoll):
                 task['value']=formatValue(task['value'],task['format'],None)
             except Exception as e:
                 traceback.print_exc(file=sys.stdout)
-                task['error']="обработка результата: "+str(e)    
+                task['error']="обработка результата: "+str(e)
+
+            # remove tasks that returned None after applying format
+            if task['value'] is None:
+                task2remove.add(taskKey)
+
+    # remove tasks that returned none
+    for t2r in task2remove:
+        tasksToPoll.pop(t2r)
+
+
+# some heartbeat tasks can have "applyTo" field, wich means this task takes another tasks parameters as argument
+# ex. task "mediaRecorderControl" is applying to tasks "mediaRecorder"
+# here we process applyTo field from hb task settings and substitute names with actual task id and parameters
+def fillApplyTo(tasksToPoll,vHbTasks):
+    settiings={
+    # hb task item name
+    "MediaRecorderControl":{
+            # qos tasks modules wich it applies to 
+            "target":["MediaRecorder"],
+            # qos task parameters, used by this hb task
+            "useFields":["serviceIp","servicePort"]
+
+        }
+    }
+    appliedTasks=set()
+
+    for hbtask in vHbTasks.values():
+        applyTo=hbtask.setdefault('config',{}).pop('applyTo',None)
+        item=hbtask['config'].get('item',None)
+        if hbtask['enabled'] and (applyTo is not None) and item in settiings.keys():
+            # assert type(applyTo)==list
+            applyTo=set(applyTo)
+
+            # empty set: apply to all names
+            # todo: name filter instead of "False"
+            if not applyTo or False:
+                target=settiings[item]['target']
+                useFields=settiings[item]['useFields']
+
+                # 1) localmode for MediaRecorderControl (pefer).
+                # For this config hbAgent must be installed on every cbk.
+                # Also, task MediaRecorderControl must be configured.
+                # This hbagent reseives only his own tasks with ip=127.0.0.1
+                #
+                # 2) non local mode for MediaRecorderControl (slow, use only for small amount of sbk on server)
+                # For this config NO hbAgent on cbk is required.
+                # MediaRecorder must be configured for 1 heartbeatAgent (local or remote)
+                # This hbagent reseives ALL mediarecorder task with their real ip.
+                # and makes non-local polling of them.
+                localMode="local" in applyTo
+
+                newApplyTo={}
+                for taskKey, taskData in tasksToPoll.items():
+                    if not taskData['enabled'] or taskData['module'] not in target:
+                        continue
+
+                    if localMode:
+                        # local hb agent must have exactly same name and key like in qos task
+                        # for local task was routed correctly
+                        if hbtask['agentName']!=taskData['agentName'] or \
+                                hbtask['agentKey']!=taskData['agentKey']:
+                            continue
+
+                    newApplyTo.update({taskKey:{
+                        "127.0.0.1" if localMode and f=="serviceIp" else f \
+                        : taskData.get(f,None)
+                            for f in useFields
+                        }})
+                    appliedTasks.add(taskKey)
+                hbtask['config']['applyTo']=newApplyTo
+    # endfor hbtasks
+
+    target=settiings['MediaRecorderControl']['target']
+    # disable target (mediaRecorder) tasks that was not applied from any mediaRecorderControl
+    for taskKey, taskData in tasksToPoll.items():
+        if taskData['module'] in target and taskKey not in appliedTasks:
+            taskData['enabled']=False
 

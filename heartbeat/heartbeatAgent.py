@@ -26,6 +26,7 @@ import traceback
 import requests
 
 import platform
+from concurrent import futures
 
 if platform.system()=='Windows':
     import wmi
@@ -79,33 +80,30 @@ presets={
     # ==============================================================================
     #  *GPS_NMEA(6)     .GPS.            0 l    -   64    0    0.000    0.000   0.000
     #  51.140.127.197  128.138.141.172  2 u   23   64    1   75.455  117.537   0.000
-    "ntpSyncAgoSec":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":10,
+    "ntpSyncAgoSec":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":20,
         "include":[r"""
             (?x)
-               ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key
-               \s*\S*                # refid field
-               \s*\S*                # st field
-               \s*\S*                # t field
-               \s*(\S*)              # when field: value
-               \s*\S*                # poll field
-               \s*\S*                # reach field
-               \s*\S*                # delay field
-               \s*\S*                # offset field
-               \s*\S*                # jitter field
+               ([\w\.\S]+)  # remote field: to filter header it must contain dot or parentheses: key
+               .* \s[lumb-]\s
+               \s*(\S+)              # when field: value
+               \s*\S+                # poll field
+               \s*\S+                # reach field
+               \s*\S+                # delay field
+               \s*\S+                # offset field
+               \s*\S+                # jitter field
         """]},
-    "ntpSyncOffset":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":10,
+    "ntpSyncOffset":{"item":"shell", "command":"'c:\\Program Files (x86)\\NTP\\bin\\ntpq.exe' -p", "utf8":True, "timeout":20,
         "include":[r"""
             (?x)
-               ([\w]* [\(\.] [\S]*)  # remote field: to filter header it must contain dot or parentheses: key
-               \s*\S*                # refid field
-               \s*\S*                # st field
-               \s*\S*                # t field
-               \s*\S*                # when field
-               \s*\S*                # poll field
-               \s*\S*                # reach field
-               \s*\S*                # delay field
-               \s*(\S*)              # offset field: value
-               \s*\S*                # jitter field
+            (?x)
+               ([\w\.\S]+)  # remote field: to filter header it must contain dot or parentheses: key
+               .* \s[lumb-]\s
+               \s*\S+                # when field
+               \s*\S+                # poll field
+               \s*\S+                # reach field
+               \s*\S+                # delay field
+               \s*(\S+)              # offset field: value
+               \s*\S+                # jitter field
         """]},
     "intelRaid":{"item":"shell", "command":"c:\\monitoring\\rstcli64.exe -I -v", "utf8":True, "timeout":3,
         "include":[r"""
@@ -684,7 +682,6 @@ def taskShellTableValue(command,include,utf8,timeout):
 
 # like taskShellTableValue, but parses GET request result
 def taskHtmlTableValue(url,include):
-    print(url)
     r=requests.get(url)
     if r.status_code!=200:
         raise Exception("Ошибка HTTP "+str(r.status_code))
@@ -735,11 +732,28 @@ def taskMediaRecorderControl(applyTo):
 
 
     assert type(applyTo)==dict
+    # non-multithreading version
+    # res={}
+    # for taskKey, taskData in applyTo.items():
+    #     res.update({
+    #         taskKey:_do1task(taskKey,taskData)
+    #         })
+
+    # multithreading version
+    # 10 threads parallel
+    futureDict = {futures.ThreadPoolExecutor(10).submit(_do1task, taskKey,taskData): (taskKey,taskData)
+                for taskKey, taskData in applyTo.items()}
     res={}
-    for taskKey, taskData in applyTo.items():
-        res.update({
-            taskKey:_do1task(taskKey,taskData)
-            })
+    for future in futures.as_completed(futureDict):
+        taskKey=futureDict[future][0]
+        taskData=futureDict[future][0]
+        if future.exception() is not None:
+            print('%r generated an exception: %s' % (taskKey,future.exception()))
+            taskData['error']=future.exception()
+        else:
+            res.update({
+                taskKey:future.result()
+                })
     return res
 
 

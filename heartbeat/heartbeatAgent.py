@@ -699,14 +699,23 @@ def taskMediaRecorderControl(applyTo):
         tmp=re.search(r"(.+)\.(.+)$",taskKey)
         if tmp is None:
             raise Exception("Ошибка при обработке taskKey")
-        # agentKeyAndModule=tmp.groups(1)
+        agentKeyAndModule=tmp.group(1)
         taskId=tmp.group(2)
+
+        template=["/streams/{0}/([\d_]*)/".format(taskId)]
         url='http://{0}:{1}/qligentPlayer/streams/{2}'.format(taskData['serviceIp'],taskData['servicePort'],taskId)
-        template=["/qligentPlayer/streams/{0}/([\d_]*)/".format(taskId)]
         try:
             datesList=taskHtmlTableValue(url,template)
         except Exception:
-            return "Ошибка при получении данных MediaRecorder (0). Проверьте службу Red5."
+            datesList=[]
+
+        if not datesList:
+            template=["/streams/{0}/{1}/([\d_]*)/".format(agentKeyAndModule,taskId)]
+            url='http://{0}:{1}/qligentPlayer/streams/{2}/{3}'.format(taskData['serviceIp'],taskData['servicePort'],agentKeyAndModule,taskId)
+            try:
+                datesList=taskHtmlTableValue(url,template)
+            except Exception:
+                return "http://{0}:{1}/qligentPlayer".format(taskData['serviceIp'],taskData['servicePort'],taskId)
 
         if not datesList:
             return "Ошибка при получении данных MediaRecorder (1). Проверьте службу Red5."
@@ -746,7 +755,7 @@ def taskMediaRecorderControl(applyTo):
     res={}
     for future in futures.as_completed(futureDict):
         taskKey=futureDict[future][0]
-        taskData=futureDict[future][0]
+        taskData=futureDict[future][1]
         if future.exception() is not None:
             print('%r generated an exception: %s' % (taskKey,future.exception()))
             taskData['error']=future.exception()

@@ -184,9 +184,9 @@ class MainView(BoxFormView):
             if taskStyle == 'rem':
                 res = '0'
             elif taskStyle == "ign":
-                res = '1'
-            else:
                 res = '2'
+            else:
+                res = '1'
             return res+t['name']
 
         def getNameForTask(task):
@@ -210,7 +210,7 @@ class MainView(BoxFormView):
                 name+=")"
 
             if not task['enabled']:
-                name += " : Задача отключена "
+                name += " : Задача неактивна "
 
             if 'timeStamp' in task.keys() and task.get('style', None) != 'ign':
                 idleTime = datetime.utcnow() - task['timeStamp']

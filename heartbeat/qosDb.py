@@ -151,6 +151,7 @@ def getTasks(dbConnection, defaultPeriod):
                 "module": row[2],
                 "itemName": row[4],
                 "enabled":not row[7],
+                "qosEnabled":not row[7],                
                 "period": defaultPeriod if row[5] is None else int(row[5]),
                 "serviceIp": tmp[0] if tmp is not None else None,
                 "servicePort": tmp[1] if tmp is not None else None,

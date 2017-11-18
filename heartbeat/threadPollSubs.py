@@ -412,7 +412,8 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             # more than aDuration  from state change are gone...
             if pollStartTimeStamp - stateChangeTimeStamp > aDuration :
                 # check 1: task is disabled, but schedule support is enabled and task is scheduled now
-                if 'scheduled' in task.keys() and task['scheduled']==True:
+                if 'scheduled' in task.keys() and task['scheduled']==True and \
+                   'qosEnabled' in task.keys() and task['qosEnabled']==False:                    
                     task['error']="задача запланирована, но не работает"
                     continue
 

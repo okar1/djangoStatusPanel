@@ -785,6 +785,9 @@ def processHeartBeatTasks(tasksToPoll):
             print("*********")
             print("got task:",taskKey,task)
 
+        if task.get('enabled',True)==False:
+            continue
+
         if task.get('module',None)!='heartbeat':
             task['error']="Указано неверное имя модуля"
             continue

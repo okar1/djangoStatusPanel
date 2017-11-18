@@ -22,27 +22,28 @@ class MqConsumers():
     stopConsumerFlag=False
     queueDeclaredOK=False
     thread=None
+    # error when connecting or getting messages. Causes ioloop to restart
     error=None
-    messages=[]
+    messages={}
 
-    # static
     # newStore like {consumerName:(amqpUrl,queueName)}
-    def createUpdateConsumers(newStore):
-        store=MqConsumers.store
+    @classmethod
+    def createUpdateConsumers(cls,newStore):
+        store=cls.store
         sStore=set(store)
         sNewStore=set(newStore)
 
         consToAdd=sNewStore-sStore
         # remember consToAdd in updatedConsumers set
-        MqConsumers.updatedConsumers.update(consToAdd)
+        cls.updatedConsumers.update(consToAdd)
         for conName in consToAdd:
-            newC=MqConsumers(conName,newStore[conName][0],newStore[conName][1])
+            newC=cls(conName,newStore[conName][0],newStore[conName][1])
             store[conName]=newC
             newC.startConsumer()
 
         consToUpdate=sStore.intersection(sNewStore)
         # remember consToUpdate in updatedConsumers set
-        MqConsumers.updatedConsumers.update(consToUpdate)
+        cls.updatedConsumers.update(consToUpdate)
         for conName in consToUpdate:
             c=store[conName]
             newUrl=newStore[conName][0]
@@ -52,31 +53,31 @@ class MqConsumers():
                 c.stopConsumer()
                 store.pop(conName)
 
-                newC=MqConsumers(conName,newStore[conName][0],newStore[conName][1])
+                newC=cls(conName,newStore[conName][0],newStore[conName][1])
                 store[conName]=newC
                 newC.startConsumer()
 
-    # static
     # stop consumers wich was not updated since last cleanupConsumers() call
-    def cleanupConsumers():
-        consToDelete=set(MqConsumers.store)-MqConsumers.updatedConsumers
+    @classmethod
+    def cleanupConsumers(cls):
+        consToDelete=set(cls.store)-cls.updatedConsumers
         for conName in consToDelete:
-            MqConsumers.store[conName].stopConsumer()
-            MqConsumers.store.pop(conName)
+            cls.store[conName].stopConsumer()
+            cls.store.pop(conName)
 
-        MqConsumers.updatedConsumers=set()
+        cls.updatedConsumers=set()
 
 
-    # static
-    # returns list with messages or raises error
+    # returns dict with messages or raises error
     # clear internal message store after return
-    def popConsumerMessages(consumerName):
-        store=MqConsumers.store
+    @classmethod
+    def popConsumerMessages(cls,consumerName):
+        store=cls.store
         if consumerName not in store.keys():
-            return []
+            return {}
 
         res=store[consumerName].messages
-        store[consumerName].messages=[]
+        store[consumerName].messages={}
         error=store[consumerName].error
         store[consumerName].error=None
         if error is not None:
@@ -102,6 +103,15 @@ class MqConsumers():
         self.thread.join()
         print('Consumer stopped for',self.consumerName)
 
+
+    # to override in child classes
+    def onMessageGenericHandler(self, method, header, body):
+        # print("mq gen 1 handler")
+        # just example. This is overrided in child classes
+        msg=(method,header,body)
+        self.messages[id(msg)]=msg
+
+
     def _consumerLoop(self):
         connection=None
         channel=None
@@ -109,6 +119,7 @@ class MqConsumers():
         # Step #2
         def onConnected(connection):
             """Called when we are fully connected to RabbitMQ"""
+            # print("mq connected")
             nonlocal self
             # Open a channel
             if not connection.channel(onChannelOpen):
@@ -118,6 +129,7 @@ class MqConsumers():
         # Step #3
         def onChannelOpen(newChannel):
             """Called when our channel has opened"""
+            # print("mq channel open")
             nonlocal channel
             channel = newChannel
             nonlocal self
@@ -127,6 +139,7 @@ class MqConsumers():
         def onQueueDeclared(frame):
             """Called when RabbitMQ has told us our Queue has been declared, frame is the response from RabbitMQ"""
             # print("consumer start")
+            # print("mq queue declared")
             nonlocal self
             self.queueDeclaredOK=True
             if not channel.basic_consume(onMessage, queue=self.queueName):
@@ -137,14 +150,17 @@ class MqConsumers():
 
         def onMessage(channel, method, header, body):
             # print("message",method.delivery_tag)
+            # print("mq messgge received")
             nonlocal self
-            self.messages+=[(method,header,body)]
+            self.onMessageGenericHandler(method,header,body)
             channel.basic_ack(delivery_tag=method.delivery_tag)
+
 
 
         def checkConsumerStop():
             # print("timcheckConsumerStop")
             nonlocal connection
+            nonlocal channel
             nonlocal self
 
             if not connection.is_open:
@@ -155,6 +171,7 @@ class MqConsumers():
 
                 if self.stopConsumerFlag or (self.error is not None):
                         connection.ioloop.stop()
+                        channel.close()
                 else:
                     connection.add_timeout(self.stopConsumerCheckIntervalSec, checkConsumerStop)
 
@@ -191,23 +208,3 @@ class MqConsumers():
 
         except Exception as e:
             self.error=str(e)
-
-
-def main():
-    queueArgs={'x-message-ttl':1800000}
-    # queueArgs={}
-    cons1={"c1":("amqp://localhost/%2f","test",queueArgs),"c2":("amqp://localhost/%2f","q2",queueArgs)}
-    MqConsumers.createUpdateDeleteConsumers(cons1)
-    time.sleep(5)
-    try:
-        msg=MqConsumers.popConsumerMessages("c1")
-        MqConsumers.popConsumerMessages("c2")
-        print(len(msg), "msg loaded")
-        print (msg[0])
-    except Exception as e:
-        print(str(e))
-    cons3={}
-    MqConsumers.createUpdateDeleteConsumers(cons3)
-
-if __name__=="__main__":
-    main()

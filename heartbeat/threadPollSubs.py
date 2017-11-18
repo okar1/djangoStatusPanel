@@ -2,22 +2,19 @@
 import json
 import pika
 import time
-from datetime import datetime
-from . import qosDb
-from . import heartbeatAgent
-from .threadMqConsumers import MqConsumers
-from . import timeDB
 import re
 import calendar
-import traceback
-import sys
+from . import qosDb
+from . import heartbeatAgent
+from .threadMqQosResultConsumers import MqQosResultConsumers
+from . import timeDB
 
-timeStampFormat="%Y%m%d%H%M%S"
-matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
+
 agentProtocolVersion=2
 # messages with this routing key are not actually send to rabbitMQ
 # they are processed locally in server context
 localRoutingKey="local"
+modulesReturningValue=['heartbeat','MediaRecorder']
 
 # send message "ServerStarted" to "qos.service" queue
 # (no exception handling)
@@ -156,85 +153,33 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
     pollName = "RabbitMQ"
     errors = set()
     delayedErrors = set()
+    unknownMessageKey="__unknownMessageKey__"
 
     try:
-        mqMessages = MqConsumers.popConsumerMessages(mqConsumerId)
+        # load messages from rabbitMQ, parse data and get timeStamps from it
+        # mqTimeStamps like {taskkey:{"timeStamp":timestamp}}
+        mqTimeStamps = MqQosResultConsumers.popConsumerMessages(mqConsumerId)
     except Exception as e:
         errors.add(str(e))
         vServerErrors.update(formatErrors(errors, serverName, pollName))
         return
 
-    # print("**************************",mqConsumerId)
-    # print(mqMessages)
+    print("got mq task timeStamps:",len(mqTimeStamps))
 
-    # now we have list of mqMessages
-    for msg in mqMessages:
-        if type(msg)!=tuple or len(msg)!=3:
-            errors.add("RabbitMQ вернул недопустимые данные")
-            continue
+    serverError=mqTimeStamps.pop(unknownMessageKey,None)
+    if serverError is not None:
+        # error when parsing contents one or more messages.
+        # error is not critical, continue parsing another messages
+        vServerErrors.update(formatErrors({serverError['error']}, serverName, pollName))
 
-        # unpack tuple
-        mMetaData, mProperties, mData=msg      
+    notRegisteredTasks=set(mqTimeStamps)-set(vTasksToPoll)
+    for taskKey in notRegisteredTasks:
+        delayedErrors.add("Задача " + taskKey + " не зарегистрирована в БД")
 
-        try:
-            mHeaders=mProperties.headers
-            if mProperties.content_type != 'application/json':
-                errors.add("Неверный тип данных в сообщении RabbitMQ" + mProperties)
-                continue
-        except Exception as e:
-            errors.add(e)
-            continue
+    # update vTasksToPoll with timestamps from mqTimeStamps
+    for taskKey,taskData in vTasksToPoll.items():
+        taskData.update(mqTimeStamps.get(taskKey,{}))
 
-        msgType = ""
-        try:
-            msgType = mHeaders['__TypeId__']
-        except Exception as e:
-            errors.add("Ошибка обработки сообщения: нет информации о типе.")
-            continue
-
-        # parse message payload
-        try:
-            mData = json.loads((mData).decode('utf-8'))
-            taskKey = mData['taskKey']
-
-            if taskKey not in vTasksToPoll.keys():
-                delayedErrors.add("Задача " + taskKey + " не зарегистрирована в БД")
-                continue
-
-            if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
-                taskResults = mData['results']
-                for tr in taskResults:
-                    # if result has any parameters - store in timeStamp vTasksToPoll
-                    if len(tr['parameters'].keys()) > 0:
-                        vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], timeStampFormat)
-
-            elif msgType ==  'com.tecomgroup.qos.communication.message.MatchResultMessage':
-                taskResults = mData['results']
-                for tr in taskResults:
-                    # if result has any parameters - current timeStamp in vTasksToPoll.
-                    # timestamps in amqp message not satisfied heartbeat task
-                    if len(tr['parameters'].keys()) > 0:
-                        vTasksToPoll[taskKey]['timeStamp']=datetime.utcnow()
-
-                    # timeStamp=tr.get('parameters',{}).get('match',{}).get('second_event_time',None)
-                    # if timeStamp is not None:
-                    #     vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(tr['resultDateTime'], matchTimeStampFormat)
-
-            elif msgType ==  'com.tecomgroup.qos.communication.message.TaskStatus':
-                pass
-            elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
-                if len(mData['TSStructure']) > 0:
-                    vTasksToPoll[taskKey]['timeStamp'] = datetime.strptime(mData['timestamp'], timeStampFormat)
-            else:
-                errors.add("Неизвестный тип сообщения: " + msgType)
-                continue
-
-        except Exception as e:
-            errors.add(str(e))
-            continue
-
-    # endfor
-        
     vServerErrors.update(formatErrors(errors, serverName, pollName))
     vServerErrors.update(formatErrors(delayedErrors, serverName, 'RabbitMqTaskNotInDB',delayedError=True))
 
@@ -384,7 +329,6 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
                             alarmsFired.update({aKey})
 
             except Exception as e:
-                traceback.print_exc(file=sys.stdout)
                 task['error']="обработка оповещений: "+str(e) 
 
         # timestamps like {alarmKey:timestamp} when alarm was firstly fired
@@ -415,10 +359,9 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
     
     # compose error text for task (if applicable)
     for taskKey, task in tasksToPoll.items():
-        module=task.get('module',None)
-        
-
+       
         taskEnabled=task['enabled']
+
         timeStamp=task.get('timeStamp',None)        
         stateChangeTimeStamp = task.get('stateChangeTimeStamp', None)
 
@@ -440,7 +383,7 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
             if timeStamp:
                 # task received data and has no errors
                 # so, make extended check for heartbeat tasks (alarms, resultcount etc)
-                if task.get('error',None) is None:
+                if task.get('error',None) is None and task['module'] in modulesReturningValue:
                     # check that task received a value
                     if (task.get('value',None) is None):
                         task['error']="Значение не вычислено"
@@ -465,15 +408,18 @@ def markTasks(tasksToPoll, oldTasks, pollStartTimeStamp, appStartTimeStamp, poll
 
             if timeStamp is None:
                 timeStamp=stateChangeTimeStamp
-            
-            # when task disabled -  calc how long we received data (but shoud not)
-            # got data from disabled qos task
-            if module not in ['Match'] :
-                    # more than aDuration  from state change are gone
-                    if pollStartTimeStamp - stateChangeTimeStamp > aDuration :
-                        # but for last aDuration  seconds we still receive data
-                        if pollStartTimeStamp - timeStamp < aDuration :
-                            task['error']="задача отключена, но присылает данные"
+
+            # more than aDuration  from state change are gone...
+            if pollStartTimeStamp - stateChangeTimeStamp > aDuration :
+                # check 1: task is disabled, but schedule support is enabled and task is scheduled now
+                if 'scheduled' in task.keys() and task['scheduled']==True:
+                    task['error']="задача запланирована, но не работает"
+                    continue
+
+                # check2: ...but for last aDuration  seconds we still receive data (but shoud not)
+                if pollStartTimeStamp - timeStamp < aDuration :
+                    task['error']="задача отключена, но присылает данные"
+                    continue
     # endfor task
 
     # display error style in task caption
@@ -764,16 +710,16 @@ def applyHostAliases(allServerAliases,server,vTasks):
 def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTimeStamp,serverName,vTasksToPoll,vServerErrors):
     # request qos db for channel status. Which chnnels are actve now and which are not
     channelScheduledModules={}
+    # zapas is seconds count after channel becomes active and before it becomes inactive
+    # in "zapas" period channelSchedule still retutns active=false (in really it already=true)
+    # zapas is used to prevent fake alarms at schedule intervals borders
+    zapas=pollingPeriodSec
     if serverDB:
         try:
-            # zapas is seconds count after channel becomes active and before it becomes inactive
-            # in "zapas" period channelSchedule still retutns active=false (in really it already=true)
-            # zapas is used to prevent fake alarms at schedule intervals borders
-            zapas=pollingPeriodSec
-            # get channel schedule from qos db like {agent:{1:True,3:True, 5:False}}
+            # get channel schedule from qos db like{agent:{1:{GenericMonitor},3:{CaptionsAnalyzer,MediaRecorder}, 5:{}}}
             # where agent - agentkey
             # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
-            # bool - is task scheduled to run in specified timestamp (true) or scheduled to be paused (false)
+            # value - set of modules scheduled to run in specified timestamp
             channelScheduledModules=qosDb.getChannelScheduledModules(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
@@ -781,6 +727,7 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
     hostsEnabled=allServerHostEnabled.get(serverName,{})
     
     for taskKey,taskData in vTasksToPoll.items():
+
         # check that task is placed inside existing heartbeat host, that is disabled
         if hostsEnabled.get(taskData['agentName'],True)==False or \
                 taskData['module'] in ['MediaStreamer','RawDataRecorder']:
@@ -790,8 +737,6 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
         # schedule feature not supported
         if channelScheduledModules is None:
             continue
-
-        # taskIsScheduled=False
 
         #check that qos task is paused by schedule 
         agentKey=taskData['agentKey']
@@ -807,22 +752,18 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
                 # channel present in schedule
                 # else treat such task as continuous
                 if channelNumber in agentDict.keys():
-                    # current task's module is present in schedule and NOT allowed to run now - disable task
                     # some module can absent in agentdict if it not described in qosScheduleDeviceToModuleMapping
                     # ex. when new module types are added to qos
-                    # such new modules will be treat as continuous and will raise fake errors when scheduled
-                    # update qosScheduleDeviceToModuleMapping to avoid this
-                    if moduleName not in agentDict[channelNumber]:
+                    # such situations will raise fake errors.
+                    # Update qosScheduleDeviceToModuleMapping to avoid this
+                    if moduleName in agentDict[channelNumber]:
+                        taskData['scheduled']=True
+                    else:
+                        taskData['scheduled']=False
                         taskData['enabled']=False
-                        continue
-                        # dont forget to uncomment early taskIsScheduled when debug )
-                        # taskIsScheduled=taskIsScheduled or True
 
-        # debug check that all tasks are scheduled and there is no continuous tasks
-        # if not taskIsScheduled:
-        #     taskData['error']="задача отсутствует в расписании"
-        # else:
-        #     continue
+
+        # endfor task
         
         # debug disabling for all qos tasks. testing alarms
         # taskData['enabled']=False
@@ -1046,7 +987,6 @@ def formatTasksValues(tasksToPoll):
                 # assert that last value is not need when formatting, only when alerting
                 task['value']=formatValue(task['value'],task['format'],None)
             except Exception as e:
-                traceback.print_exc(file=sys.stdout)
                 task['error']="обработка результата: "+str(e)
 
             # remove tasks that returned None after applying format

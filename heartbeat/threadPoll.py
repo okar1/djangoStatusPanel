@@ -5,7 +5,7 @@ import sys
 import platform
 from .models import Servers, Options, TaskSets, Hosts
 from . import threadPollSubs as subs
-from .threadMqConsumers import MqConsumers
+from .threadMqQosResultConsumers import MqQosResultConsumers
 
 isTestEnv=False
 
@@ -96,7 +96,7 @@ def threadPoll():
                 mqConsumerId=str(server.id)+" "+server.name
 
                 # opens mq consumer for this server. If it alredy opened - do nothing 
-                MqConsumers.createUpdateConsumers({mqConsumerId:(mqConf['amqpUrl'],mqConf['heartbeatQueue'])})
+                MqQosResultConsumers.createUpdateConsumers({mqConsumerId:(mqConf['amqpUrl'],mqConf['heartbeatQueue'])})
 
                 # polling RabbitMQ (download messages from consumer), add "idleTime" to tasksToPoll
                 subs.pollMQ(server.name, mqConsumerId,serverErrors,tasksToPoll)
@@ -168,7 +168,7 @@ def threadPoll():
         
         # close and delete MQ consumers wich was not updated in cycle before
         # (ex. db config was changed)
-        MqConsumers.cleanupConsumers()
+        MqQosResultConsumers.cleanupConsumers()
 
         # sort boxex, make boxes with errors first. Not affects on tasks inside boxes
         subs.pollResultSort(pollResult)

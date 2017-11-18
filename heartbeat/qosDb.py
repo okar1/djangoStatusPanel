@@ -89,7 +89,8 @@ def getTasks(dbConnection, defaultPeriod):
         task.entity_key as "taskkey",
         task.displayname as "displayname",
         prop.value as "period",
-        urls.url
+        urls.url,
+        task.disabled
     FROM 
         magent as "agent", mmediaagentmodule as "module" LEFT JOIN (
                 -- mmediaagentmodule_mstream is a link table from mmediaagentmodule to both mrecordedstream and mlivestream
@@ -116,10 +117,8 @@ def getTasks(dbConnection, defaultPeriod):
     WHERE
         agent.id=module.parent_id and
         module.id=task.parent_id and
-        
         agent.deleted=false and
-        task.deleted=false and
-        task.disabled=false
+        task.deleted=false
     """
 
     try:
@@ -151,7 +150,7 @@ def getTasks(dbConnection, defaultPeriod):
                 "agentName":row[1],
                 "module": row[2],
                 "itemName": row[4],
-                "enabled":True, # disabled tasks are excluded by sql
+                "enabled":not row[7],
                 "period": defaultPeriod if row[5] is None else int(row[5]),
                 "serviceIp": tmp[0] if tmp is not None else None,
                 "servicePort": tmp[1] if tmp is not None else None,
@@ -220,7 +219,7 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
         task.channel_id as "channelid",
         devices.type as "device",
         profile.configuration as "module_groups",
-        bool_or({0}>sc.begin_time and {1}<least(sc.end_time,sc.until) and devices.type!='MATCH') as "channelactive"
+        bool_or({0}>sc.begin_time and {1}<least(sc.end_time,sc.until)) as "channelactive"
         FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices", qos.monitoring_profile as "profile"
         WHERE task.probe_id=agent.id and task.id=sc.task_id and task.device_id=devices.id and task.profile_id=profile.id and devices.deleted=false
         GROUP BY agent.entity_key, task.channel_id, devices.type, profile.configuration

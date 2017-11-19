@@ -782,8 +782,6 @@ def taskMediaRecorderControl(applyTo):
 #   timeStamp - value timestamp
 def processHeartBeatTasks(tasksToPoll):
     
-    task2remove=set()
-
     for taskKey,task in tasksToPoll.items():
 
         if isTestEnv:
@@ -898,37 +896,23 @@ def processHeartBeatTasks(tasksToPoll):
         if ('error' not in task.keys()) and ('value' in task.keys()):
             value=task['value']
 
-            # value is set, but equals none - remove such task
-            if value is None:
-                task2remove.add(taskKey)
-            else:
-                if type(value)==dict:
-                    # for composite tasks - remove None results too
-                    if item in ["MediaRecorderControl"]:   
-                        # items that returns full task keys - copy "as is"
-                        task['value']={k : v for k,v in value.items() if v is not None}
-                    else:
-                        # items that returns "short" task keys - append parent task key
-                        task['value']={taskKey+"."+ k : v for k,v in value.items() if v is not None}
-
-                    # not return empty composite tasks. Return  none instead
-                    if not task['value']:
-                        task['value']=None
-                        task2remove.add(taskKey)
+            if type(value)==dict:
+                # for composite tasks - remove None results too
+                if item in ["MediaRecorderControl"]:   
+                    # items that returns full task keys - copy "as is"
+                    task['value']={k : v for k,v in value.items() if v is not None}
+                else:
+                    # items that returns "short" task keys - append parent task key
+                    task['value']={taskKey+"."+ k : v for k,v in value.items() if v is not None}
         # endif
 
         if isTestEnv:
             print("")
-            if taskKey not in task2remove:
-                print ("result:",task)
+            print ("result:",task)
 
         #calc current timestamp after end of collecting results        
         task['timeStamp']=datetime.utcnow()
     #end for
-
-    # remove tasks that returned none
-    for t2r in task2remove:
-        tasksToPoll.pop(t2r)
 
     # deleting static entires from subroutines
     # they was used for caching results during processHeartBeatTasks

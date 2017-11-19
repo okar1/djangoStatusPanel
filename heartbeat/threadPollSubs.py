@@ -14,7 +14,11 @@ agentProtocolVersion=2
 # messages with this routing key are not actually send to rabbitMQ
 # they are processed locally in server context
 localRoutingKey="local"
+# these modules must return a value. If no value received - error orrurs
 modulesReturningValue=['heartbeat','MediaRecorder']
+# these modules allowed to return {} as value and this causes to self-remove task from list
+modulesCanRemoveSelf=['MediaRecorderControl']
+
 
 # send message "ServerStarted" to "qos.service" queue
 # (no exception handling)
@@ -208,10 +212,16 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
         if task.get("module",None)=='heartbeat' and task['enabled']:
 
             if "value" in task.keys():
+                # 1. dont allow all tasks to return {}. Use None instead
+                # this causes removing value and "no value received" error for "empty" composite tasks
+                # 2. allow MediaRecorderControl  and others in list to return {}
+                # this causes to remove task from list (if node has no mediaRecorder tasks)
+                if task['value']=={} and item not in modulesCanRemoveSelf:
+                    task['value']=None  
+
                 # hb value received and this is composite task
                 # decompose composite task to some simple tasks
-                value=task['value']
-
+                value=task['value']  
 
                 if type(value)==dict:
                     # got a composite task
@@ -231,6 +241,10 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                         childTask.update({k:v for k,v in task.items() if k in ['timeStamp','format','alarms','error','config']})
 
                         tasksToAdd.update({childTaskKey:childTask})
+                elif value is None:
+                    # remove "None" values.
+                    # this causes "no value received" error
+                    task.pop('value',None)
             else:
                 # hb value not received
                 # check if there are early decomposed (children) tasks in oldTasks with 

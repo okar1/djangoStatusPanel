@@ -9,6 +9,7 @@ matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
 
 resultDateTimePattern=re.compile(r'"resultDateTime"\s*:\s*"(.+?)"')
 timestampPattern=re.compile(r'"timestamp"\s*:\s*"(.+?)"')
+taskKeyPattern=re.compile(r'"taskKey"\s*:\s*"(.+?)"')
 
 class MqQosResultConsumers(MqConsumers):
 
@@ -46,7 +47,16 @@ class MqQosResultConsumers(MqConsumers):
             # mData = json.loads(mData.decode('utf-8'))
             # taskKey = mData['taskKey']
 
-            taskKey=mHeaders['taskKey']
+            # taskKey=mHeaders['taskKey']
+            searchRes=taskKeyPattern.search(mData)
+            if searchRes is not None:
+                taskKey=searchRes.group(1)
+            else:
+                self.messages[unknownMessageKey] = {"error": "Ошибка обработки сообщения: нет информации о taskKey."}
+                return
+
+            if taskKey=="IRKUTSK-P-1.ClipSearch.2583":
+                print(mData)
 
             if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
                 searchRes=resultDateTimePattern.search(mData)
@@ -62,8 +72,15 @@ class MqQosResultConsumers(MqConsumers):
                 #             {'timeStamp': datetime.strptime(tr['resultDateTime'], timeStampFormat)}
 
             elif msgType ==  'com.tecomgroup.qos.communication.message.MatchResultMessage':
-                self.messages[taskKey] = \
-                    {'timeStamp': datetime.utcnow()}
+                searchRes=resultDateTimePattern.search(mData)
+                if searchRes is not None:
+                    self.messages[taskKey] = \
+                        {'timeStamp': datetime.strptime(searchRes.group(1), matchTimeStampFormat)}
+
+                # print("****************")
+                # print(mData)
+                # self.messages[taskKey] = \
+                #     {'timeStamp': datetime.utcnow()}
 
                 # taskResults = mData['results']
                 # for tr in taskResults:

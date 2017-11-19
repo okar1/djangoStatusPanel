@@ -164,7 +164,7 @@ def pollMQ(serverName, mqConsumerId, vServerErrors, vTasksToPoll):
         vServerErrors.update(formatErrors(errors, serverName, pollName))
         return
 
-    print("got mq task timeStamps:",len(mqTimeStamps))
+    # print("got mq task timeStamps:",len(mqTimeStamps))
 
     serverError=mqTimeStamps.pop(unknownMessageKey,None)
     if serverError is not None:

@@ -18,7 +18,7 @@ qosScheduleDeviceToModuleMapping={
             "IP_STATISTICS":{"IPStatistics"},
             "RAW_RECORDING":{"RawDataRecorder"},
             "EMERGENCY_RECORDING":{"MediaRecorder"},
-            "VIDEO_HASH":{"ImageSearch","ClipSearch","VideoFingerprint",},
+            "VIDEO_HASH":{"ImageSearch","ClipSearch","VideoFingerprint","TickerDetector"},
             "AUDIO_HASH":{"AudioFingerprint"},
             "RECORDING":{"MediaRecorder"},
             "STREAMING":{"MediaStreamer"},

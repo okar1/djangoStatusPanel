@@ -16,8 +16,6 @@ agentProtocolVersion=2
 localRoutingKey="local"
 # these modules must return a value. If no value received - error orrurs
 modulesReturningValue=['heartbeat','MediaRecorder']
-# these modules allowed to return {} as value and this causes to self-remove task from list
-modulesCanRemoveSelf=['MediaRecorderControl']
 
 
 # send message "ServerStarted" to "qos.service" queue
@@ -209,14 +207,15 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
     tasksToAdd={}
     tasksToRemove=set()
     for taskKey,task in tasksToPoll.items():
+
         if task.get("module",None)=='heartbeat' and task['enabled']:
 
             if "value" in task.keys():
                 # 1. dont allow all tasks to return {}. Use None instead
                 # this causes removing value and "no value received" error for "empty" composite tasks
-                # 2. allow MediaRecorderControl  and others in list to return {}
+                # 2. allow MediaRecorderControl to return {}
                 # this causes to remove task from list (if node has no mediaRecorder tasks)
-                if task['value']=={} and item not in modulesCanRemoveSelf:
+                if task['value']=={} and task.get('config',{}).get('item',None)!='MediaRecorderControl':
                     task['value']=None  
 
                 # hb value received and this is composite task

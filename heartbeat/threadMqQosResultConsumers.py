@@ -55,8 +55,8 @@ class MqQosResultConsumers(MqConsumers):
                 self.messages[unknownMessageKey] = {"error": "Ошибка обработки сообщения: нет информации о taskKey."}
                 return
 
-            if taskKey=="IRKUTSK-P-1.ClipSearch.2583":
-                print(mData)
+            # if taskKey=="IRKUTSK-P-1.ClipSearch.2583":
+            #     print(mData)
 
             if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
                 searchRes=resultDateTimePattern.search(mData)

@@ -1022,43 +1022,39 @@ def fillApplyTo(tasksToPoll,vHbTasks):
             # assert type(applyTo)==list
             applyTo=set(applyTo)
 
-            # empty set: apply to all names
-            # todo: name filter instead of "False"
-            if not applyTo or False:
-                target=settiings[item]['target']
-                useFields=settiings[item]['useFields']
+            target=settiings[item]['target']
+            useFields=settiings[item]['useFields']
 
-                # 1) localmode for MediaRecorderControl (pefer).
-                # For this config hbAgent must be installed on every cbk.
-                # Also, task MediaRecorderControl must be configured.
-                # This hbagent reseives only his own tasks with ip=127.0.0.1
-                #
-                # 2) non local mode for MediaRecorderControl (slow, use only for small amount of sbk on server)
-                # For this config NO hbAgent on cbk is required.
-                # MediaRecorder must be configured for 1 heartbeatAgent (local or remote)
-                # This hbagent reseives ALL mediarecorder task with their real ip.
-                # and makes non-local polling of them.
-                localMode="local" in applyTo
+            # 1) localmode for MediaRecorderControl (pefer).
+            # For this config hbAgent must be installed on every cbk.
+            # Also, task MediaRecorderControl must be configured.
+            # This hbagent reseives only his own tasks with ip=127.0.0.1
+            #
+            # 2) non local mode for MediaRecorderControl (slow, use only for small amount of sbk on server)
+            # For this config NO hbAgent on cbk is required.
+            # MediaRecorder must be configured for 1 heartbeatAgent (local or remote)
+            # This hbagent reseives ALL mediarecorder task with their real ip.
+            # and makes non-local polling of them.
+            localMode="local" in applyTo
 
-                newApplyTo={}
-                for taskKey, taskData in tasksToPoll.items():
-                    if not taskData['enabled'] or taskData['module'] not in target:
+            newApplyTo={}
+            for taskKey, taskData in tasksToPoll.items():
+                if not taskData['enabled'] or taskData['module'] not in target:
+                    continue
+
+                if localMode:
+                    # local hb agent must have exactly same name and key like in qos task
+                    # for local task was routed correctly
+                    if hbtask['agentName']!=taskData['agentName'] or \
+                            hbtask['agentKey']!=taskData['agentKey']:
                         continue
 
-                    if localMode:
-                        # local hb agent must have exactly same name and key like in qos task
-                        # for local task was routed correctly
-                        if hbtask['agentName']!=taskData['agentName'] or \
-                                hbtask['agentKey']!=taskData['agentKey']:
-                            continue
-
-                    newApplyTo.update({taskKey:{
-                        "127.0.0.1" if localMode and f=="serviceIp" else f \
-                        : taskData.get(f,None)
-                            for f in useFields
-                        }})
-                    appliedTasks.add(taskKey)
-                hbtask['config']['applyTo']=newApplyTo
+                newApplyTo.update({taskKey:{
+                    f: "127.0.0.1" if localMode and f=="serviceIp" else taskData.get(f,None)
+                        for f in useFields
+                    }})
+                appliedTasks.add(taskKey)
+            hbtask['config']['applyTo']=newApplyTo
     # endfor hbtasks
 
     target=settiings['MediaRecorderControl']['target']

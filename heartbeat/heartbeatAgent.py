@@ -739,6 +739,11 @@ def taskMediaRecorderControl(applyTo):
         else:    
             return flvSizeList[len(flvSizeList)-1]
 
+    # we got applyTo directly from hb task config.
+    # this means, that threadPollSubs.fillApplyTo was not processed for this node
+    # this means, that this node hasn't corresponding MediaRecorder tasks to apply
+    if type(applyTo)==list:
+        return {}
 
     assert type(applyTo)==dict
     # non-multithreading version
@@ -879,7 +884,7 @@ def processHeartBeatTasks(tasksToPoll):
                     }))
             elif item=="MediaRecorderControl":
                 task['value']=taskMediaRecorderControl(**checkParameters(taskConfig,{
-                    "applyTo":{"type":dict,
+                    "applyTo":{"type":[dict,list],
                            "mandatory":True}
                     }))
 

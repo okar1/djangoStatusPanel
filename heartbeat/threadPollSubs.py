@@ -215,6 +215,7 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
 
                 if type(value)==dict:
                     # got a composite task
+                    tasksToRemove.add(taskKey)
                     for childTaskKey,childTaskValue in value.items():
                         # scenario 1: tasks like MediarecorderControl are applying to another tasks like "MediaRecorder"
                         # for such tasks childTaskKey is key of "target" and it already presents in tasksToPoll
@@ -230,7 +231,6 @@ def subReceiveHeartBeatTasks(mqConf,serverName,tasksToPoll,serverErrors,oldTasks
                         childTask.update({k:v for k,v in task.items() if k in ['timeStamp','format','alarms','error','config']})
 
                         tasksToAdd.update({childTaskKey:childTask})
-                        tasksToRemove.add(taskKey)
             else:
                 # hb value not received
                 # check if there are early decomposed (children) tasks in oldTasks with 

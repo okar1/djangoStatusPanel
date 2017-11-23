@@ -117,10 +117,16 @@ def pollDb(dbConfig, serverName, vServerErrors,oldTasks,pollingPeriodSec):
     # endif
     vServerErrors.update(formatErrors(errors, serverName, pollName))
     
+    dbConfigured=sum([item.get('server','')!=''  for item in dbConfig])
+
     # if connection to qos db is lost - use last received from qos db tasks
     # heartbeat tasks are excluded, because they are loaded from local db, not qos db. 
     if tasksToPoll is None:
-        tasksToPoll = {k:v for k,v in oldTasks.items() if v.get("module","")!='heartbeat'}
+        if dbConfigured:
+            tasksToPoll = {k:v for k,v in oldTasks.items() if v.get("module","")!='heartbeat'}
+        else:
+            # if settings was changed and no any db host is specified now - then not prolongate oldTasks
+            tasksToPoll = {}
 
     return (dbConnection, tasksToPoll)
 

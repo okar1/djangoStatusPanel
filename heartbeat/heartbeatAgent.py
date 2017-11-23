@@ -318,7 +318,7 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
 def updateShovels(mqConf,errors):
 
     # dont create shovels at testing environments
-    if mqConf['hbServer'].find('{{')!=-1:
+    if mqConf['hbServer'].find('{')!=-1:
         return
 
     mqApiUrl='http://127.0.0.1:{0}/api/'.format(mqConf['port'])

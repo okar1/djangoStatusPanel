@@ -2,35 +2,61 @@
 import psycopg2
 import re
 
+# qos services codes
+PROGRAM=0
+SNMP=1
+MEASUREMENT=2
+SELF=3
+SCAN=4
+
 # wich modules are allowed to run by specific qos device and qos module group
-# like {device:{"modules":{modules}} or {device:{"module_groups":"{modules}}
+# like {device:{serviceType:{"modules":{modules}}} or {"module_groups":"{modules}}
 qosScheduleDeviceToModuleMapping={
-    "MATCH":{
-        "modules":{"Match"}},
-    "SELF":{
-        "modules":{"SelfMonitor"}},
+    "__other__":{
+        PROGRAM:{ 
+            "module_groups":{
+                "RF":{"RfMeasurement"},
+                "TS":{"TR101290"},
+                "TS":{"TR101290","AtscA78","TSStructure"},
+                "IP":{"IPStatistics"},
+                "IP_STATISTICS":{"IPStatistics"},
+                "RAW_RECORDING":{"RawDataRecorder"},
+                "EMERGENCY_RECORDING":{"MediaRecorder"},
+                "VIDEO_HASH":{"ImageSearch","ClipSearch","VideoFingerprint","TickerDetector"},
+                "AUDIO_HASH":{"AudioFingerprint"},
+                "RECORDING":{"MediaRecorder"},
+                "STREAMING":{"MediaStreamer"},
+                "SUBTITLES":{"CaptionsAnalyzer"},
+                "AD":{"MpegTSSplicingControlModule"},
+                "AUDIO":{"LoudnessR128","LoudnessA85"},
+                "VIDEO":{"QoEVideo"},
+                "BITRATE":{"MpegTSStatisticsIPTVControlModule"},
+            },
+        },
+        MEASUREMENT:{
+            'modules': {'MpegTSStatisticsIPTVControlModule','TR101290'},
+        },
+        SCAN:{
+            "modules":{"TSStructure",'AnalogScanner'}},
+    },
     "SNMP":{
-        "modules":{"GenericMonitor"}},
-    "_other_":{
-        "module_groups":{
-            "RF":{"RfMeasurement"},
-            "IP":{"IPStatistics"},
-            "IP_STATISTICS":{"IPStatistics"},
-            "RAW_RECORDING":{"RawDataRecorder"},
-            "EMERGENCY_RECORDING":{"MediaRecorder"},
-            "VIDEO_HASH":{"ImageSearch","ClipSearch","VideoFingerprint","TickerDetector"},
-            "AUDIO_HASH":{"AudioFingerprint"},
-            "RECORDING":{"MediaRecorder"},
-            "STREAMING":{"MediaStreamer"},
-            "TS":{"TR101290","AtscA78","TSStructure"},
-            "SUBTITLES":{"CaptionsAnalyzer"},
-            "AD":{"MpegTSSplicingControlModule"},
-            "AUDIO":{"LoudnessR128","LoudnessA85"},
-            "VIDEO":{"QoEVideo"},
-            "BITRATE":{"MpegTSStatisticsIPTVControlModule"},
+        SNMP:{
+            'modules': {'GenericMonitor'},
+        },
+    },
+    "SELF":{
+        SELF:{
+            "modules":{"SelfMonitor"}},
+    },
+    "MATCH":{
+        PROGRAM:{
+            'modules': {'Match'},
         }
     }
 }
+
+
+ 
 
 # get period from mresultconfiguration + filter modules, period is int
 '''
@@ -215,15 +241,27 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
         return None
 
     sql="""
+        SELECT
+        id,configuration
+        FROM
+        qos.monitoring_profile
+    """
+    cur = dbConnection.cursor()
+    cur.execute(sql)
+    rows = cur.fetchall()
+    profiles={row[0]:row[1]['details'] for row in rows}
+
+    sql="""
         SELECT 
         agent.entity_key as "agentkey",
         task.channel_id as "channelid",
         devices.type as "device",
-        profile.configuration as "module_groups",
-        bool_or({0}>sc.begin_time and {1}<least(sc.end_time,sc.until)) as "channelactive"
-        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices", qos.monitoring_profile as "profile"
-        WHERE task.probe_id=agent.id and task.id=sc.task_id and task.device_id=devices.id and task.profile_id=profile.id and devices.deleted=false
-        GROUP BY agent.entity_key, task.channel_id, devices.type, profile.configuration
+        task.profile_id as "profileid",
+        bool_or({0}>sc.begin_time and {1}<least(sc.end_time,sc.until)) as "channelactive",
+        services.service_type as "servicecode"
+        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices", qos.mass_media_monitoring as "services"
+        WHERE task.channel_id=services.id and task.probe_id=agent.id and task.id=sc.task_id and task.device_id=devices.id and devices.deleted=false
+        GROUP BY agent.entity_key, task.channel_id, task.profile_id, devices.type, services.service_type
     """.format(str(timeStamp-zapas),str(timeStamp+zapas))
     
     cur = dbConnection.cursor()
@@ -233,33 +271,42 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     if len(rows)==0:
         return None
 
-    def _getModulesForDevice(channelIsActive,device,allowedGroups):
+    def _getModulesForDevice(channelIsActive,device,serviceCode,allowedGroups):
+        res=set()
+
         # if channel is not scheduled now - cancel module search
         if not channelIsActive:
-            return set()
+            return res
 
         allMap=qosScheduleDeviceToModuleMapping
+        
+        # mapping for current device type
         if device in allMap.keys():
             devMap=allMap[device]
         else:
-            devMap=allMap["_other_"]
+            devMap=allMap["__other__"]
 
-        if "modules" in devMap.keys():
-            res=devMap["modules"]
-        else:
-            groupMap=devMap["module_groups"]
-            res=set()
+        # mapping for current service type (service type is integer code)
+        srvMap=devMap.get(serviceCode,{})
+
+        # if some modules mapped to this service type (in settings) - add them
+        res.update(srvMap.get('modules',set()))
+
+        # if some groups mapped to this service type (in settings) - add modules for allowed groups
+        groupMap=srvMap.get("module_groups",{})
+        if groupMap:
             for groupName, groupIsAllowed in allowedGroups.items():
                 if groupIsAllowed and (groupName in groupMap.keys()):
                     res.update(groupMap[groupName])
+
         return res 
 
     res={}
     for row in rows:
         agentDict=res.setdefault(row[0],{})
         modulesSet=agentDict.setdefault(row[1],set())
-        modulesSet.update(_getModulesForDevice(row[4],row[2],row[3]['details']))
-        # if row[1]==1534:
-        #     print(_getModulesForDevice(row[4],row[2],row[3]['details']))
+        modulesSet.update(_getModulesForDevice(row[4],row[2],row[5],profiles[row[3]]))
+    #     if row[1]==2139:
+    #         print(_getModulesForDevice(row[4],row[2],row[5],row[3]['details']))
     # print(res)
     return res

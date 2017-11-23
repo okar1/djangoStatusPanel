@@ -24,6 +24,7 @@ import subprocess
 import sys
 import traceback
 import requests
+import random
 
 import platform
 from concurrent import futures
@@ -33,6 +34,9 @@ if platform.system()=='Windows':
 
 mqConf={
     "server":'127.0.0.1',
+    "hbServer":"{{hbserver_host}}",
+    "hbServerVhost":"{{hbserver_vhost}}",
+    "hbRoutingKey":"{{hb_routing_key}}",
     "port":"15672",
     "user":"{{rabbitmq_user}}",
     "pwd":"{{rabbitmq_pass}}",
@@ -308,6 +312,72 @@ def receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue,serverMo
     # endfor messages in current request
     return errors
 
+
+# creates and updates shovels on cbk for sending data to hb server.
+# using rabbitmq http api
+def updateShovels(mqConf,errors):
+
+    # dont create shovels at testing environments
+    if mqConf['hbServer'].find('{{')!=-1:
+        return
+
+    mqApiUrl='http://127.0.0.1:{0}/api/'.format(mqConf['port'])
+    # specify random number as heartbeat interval causes shovel to be recreated
+    # this is usefull when shovel freezes
+    randomNumber=20+int(10*random.random())
+
+    rqUrl="{0}parameters/shovel/%2f/{1}-request".format(mqApiUrl,mqConf['hbRoutingKey'])
+    rqShovelData={"value":{
+        "src-uri":"amqp://{0}:{1}@{2}/{3}?heartbeat={4}&connection_timeout=10000"
+            .format(mqConf['user'],mqConf['pwd'],mqConf['hbServer'],mqConf['hbServerVhost'],randomNumber),
+        "src-exchange-key":mqConf['hbRoutingKey'],
+        "dest-uri":"amqp://{0}:{1}@localhost".format(mqConf['user'],mqConf['pwd']),
+        "dest-exchange-key":mqConf['hbRoutingKey'],
+        "src-exchange":"heartbeatAgentRequest",
+        "dest-exchange":"heartbeatAgentRequest",
+        "reconnect-delay":10,
+        "ack-mode":"on-confirm",
+        "delete-after": "never"
+        }
+    }
+    
+    try:
+        req=requests.put(rqUrl,auth=(mqConf['user'], mqConf['pwd']),json=rqShovelData)
+    except Exception as e:
+        errors.update(str(e))
+        return
+
+    # 201 and 204 means request processed ok
+    if req.status_code not in [201,204]:
+        errors.update(str(req.status_code)+" "+req.text)
+        return
+
+    replUrl="{0}parameters/shovel/%2f/{1}-reply".format(mqApiUrl,mqConf['hbRoutingKey'])
+    replShovelData={"value":{
+        "src-uri":"amqp://{0}:{1}@localhost".format(mqConf['user'],mqConf['pwd']),
+        "src-exchange-key":mqConf['hbRoutingKey'],
+        "dest-uri":"amqp://{0}:{1}@{2}/{3}?heartbeat={4}&connection_timeout=10000"
+            .format(mqConf['user'],mqConf['pwd'],mqConf['hbServer'],mqConf['hbServerVhost'],randomNumber),
+        "dest-exchange-key":mqConf['hbRoutingKey'],
+        "src-exchange":"heartbeatAgentReply",
+        "dest-exchange":"heartbeatAgentReply",
+        "reconnect-delay":10,
+        "ack-mode":"on-confirm",
+        "delete-after": "never"
+        }
+    }
+    req=requests.put(replUrl,auth=(mqConf['user'], mqConf['pwd']),json=replShovelData)
+
+    try:
+        req=requests.put(rqUrl,auth=(mqConf['user'], mqConf['pwd']),json=rqShovelData)
+    except Exception as e:
+        errors.update(str(e))
+        return
+
+    # 201 and 204 means request processed ok
+    if req.status_code not in [201,204]:
+        errors.update(str(req.status_code)+" "+req.text)
+        return
 
 # check that format contains mandatory parameters and that parameter types are correct
 # param like {"item": "formatName", "param1":param1value, "param2":"param2value"}
@@ -928,6 +998,7 @@ def agentStart():
     print("agent start")
     errors=set()
     tasksToPoll={}
+    updateShovels(mqConf,errors)
     mqAmqpConnection=getMqConnection(mqConf,errors,maxMsgTotal)
     errors.update(receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue))
     processHeartBeatTasks(tasksToPoll)

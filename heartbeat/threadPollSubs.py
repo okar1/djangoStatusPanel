@@ -759,10 +759,10 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
         # so, treat all such tasks as continuous
         if agentDict != False:
             # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
-            s=re.search("\.(\w*)[\._](\d*)$",taskKey)
+            s=re.search("\.\w*[\._](\d*)$",taskKey)
             if s:
-                moduleName=s.group(1)
-                channelNumber=int(s.group(2))
+                channelNumber=int(s.group(1))
+                moduleName=taskData['module']
                 # channel present in schedule
                 # else treat such task as continuous
                 if channelNumber in agentDict.keys():
@@ -775,7 +775,12 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
                     else:
                         taskData['scheduled']=False
                         taskData['enabled']=False
-
+        if 'scheduled' not in taskData:
+            taskData['error']='Задача отсутствует в расписании'
+        # if taskKey=='KARASEV-O-01.SelfMonitor.SMCPU_5':
+        #     print(taskData)
+        #     print(agentDict)
+        #     print(channelScheduledModules)
 
         # endfor task
         

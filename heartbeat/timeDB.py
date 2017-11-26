@@ -169,12 +169,23 @@ def commitPollResult(timeDbConfig,pollResult,errors):
         items=host['data']
         for item in items:
             if item.get('enabled',True):
-                itemId="item:"+item['id']
+
+                # split id parts. item['id'] like server.host.unuque_key.param_name.suffix
+                # ex. localhost.localhost.2-6.hddUsed.hdd.1.load.0
+                idParts=item['id'].split('.')
+
+                # measure id is a parameter name with marker
+                # ex. "item:hddUsed"
+                # measure id hould not contain hostname or another additionals
+                # because group operation (like sum) are allowed only inside single measurement
+                # ex. sum of unprocessed MQ messages for all CBK
+                # see influxDB docs for details
+                measureId="item:"+idParts[3]
+                # measureId="item:"+item['id']
                 
                 # measure suffix for combo tasks from itemID
-                # itemID like item:server.host.unuque_key.param_name.suffix
-                # ex. item:localhost.localhost.2-6.hddUsed.hdd.1.load.0 --> hdd.1.load.0
-                msuffix='.'.join(itemId.split('.')[4:])
+                # ex. localhost.localhost.2-6.hddUsed.hdd.1.load.0 --> hdd.1.load.0
+                msuffix='.'.join(idParts[4:])
 
                 itemTags={
                     'server':serverName,
@@ -211,7 +222,7 @@ def commitPollResult(timeDbConfig,pollResult,errors):
                     value=int(value)
 
                 itemValues={'value':value,'error':error}
-                sendMeasurement(itemId,itemTags,itemValues,itemTimeStamp)
+                sendMeasurement(measureId,itemTags,itemValues,itemTimeStamp)
         #endfor task
     #endfor host
     sendMeasurement(None,None,None,None,flushData=True)

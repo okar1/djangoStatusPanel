@@ -305,7 +305,7 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     for row in rows:
         agentDict=res.setdefault(row[0],{})
         modulesSet=agentDict.setdefault(row[1],set())
-        modulesSet.update(_getModulesForDevice(row[4],row[2],row[5],profiles[row[3]]))
+        modulesSet.update(_getModulesForDevice(row[4],row[2],row[5],profiles.get(row[3],{})))
     #     if row[1]==2139:
     #         print(_getModulesForDevice(row[4],row[2],row[5],row[3]['details']))
     # print(res)

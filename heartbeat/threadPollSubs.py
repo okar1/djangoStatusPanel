@@ -8,6 +8,8 @@ from . import qosDb
 from . import heartbeatAgent
 from .threadMqQosResultConsumers import MqQosResultConsumers
 from . import timeDB
+import sys
+import traceback
 
 
 agentProtocolVersion=2
@@ -743,6 +745,7 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             channelScheduledModules=qosDb.getChannelScheduledModules(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
+            traceback.print_exc(file=sys.stdout)
 
     hostsEnabled=allServerHostEnabled.get(serverName,{})
     

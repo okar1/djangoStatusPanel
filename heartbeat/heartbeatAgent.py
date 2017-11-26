@@ -49,7 +49,7 @@ sendToExchange='heartbeatAgentReply'
 maxMsgTotal=50000
 amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
-agentProtocolVersion=3
+agentProtocolVersion=4
 localRoutingKey="local"
 isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
 
@@ -63,7 +63,7 @@ presets={
     "ohwRamUsed":{"item":"ohwtable", "include":["ram\.load"]},
     "ohwCpuTemperature":{"item":"ohwtable", "include":["cpu\..*\.temperature\.0"]},
     "ohwCpuLoad":{"item":"ohwtable", "include":["cpu\..*\.load\.0"]},
-    "windowsFirewallStatus":{"item":"shell", "command":"netsh Advfirewall show allprofiles", "utf8":True, "timeout":3,
+    "windowsFirewallStatus":{"item":"shell", "command":"cmd /C chcp 65001 && netsh Advfirewall show allprofiles", "utf8":True, "timeout":3,
         "include":[r"""
             (?sx)
             .*?
@@ -124,19 +124,6 @@ presets={
 
 # mqconfig --> (msgTotal, mqConnection)
 def getMqConnection(mqConf,vErrors,maxMsgTotal):
-
-    # try to connect via http api
-    # req = requests.get('http://{0}:{1}/api/overview'.format(
-        # mqConf["server"], mqConf["port"]), auth=(mqConf["user"], mqConf["pwd"]))
-
-    # get total number of messages on rabbitMQ
-    # msgTotal = req.json()['queue_totals']['messages']
-    # totals and messages can absent
-
-    # check if too many messages on rabbitMQ
-    # if msgTotal > maxMsgTotal:
-        # vErrors += ["Необработанных сообщений на RabbitMQ : " + str(msgTotal)]
-
     # try to connect via amqp
     amqpLink = pika.BlockingConnection(
         pika.ConnectionParameters(
@@ -379,6 +366,15 @@ def updateShovels(mqConf,errors):
         errors.update(str(req.status_code)+" "+req.text)
         return
 
+
+# get total number of messages on rabbitMQ via http api
+# no error handling
+def taskRabbitMsgTotal():
+    mqApiUrl='http://127.0.0.1:{0}/api/overview'.format(mqConf['port'])
+    req=requests.get(mqApiUrl,auth=(mqConf['user'], mqConf['pwd']))
+    return req.json()['queue_totals']['messages']
+
+
 # check that format contains mandatory parameters and that parameter types are correct
 # param like {"item": "formatName", "param1":param1value, "param2":"param2value"}
 # pattern like {"param1":{"type":dict,"mandatory":true}, "param2": ...}
@@ -504,21 +500,23 @@ def taskSnmp(oid, host ,port, readcommunity):
         raise Exception(str(reply[0]))
 
 
-# get full snmp table like dict {indexRow1:[col1,col2,col3],...}
+# when gettable=false - get value of specified snmp oid
+# when gettable=true get full snmp table like dict {indexRow1:[col1,col2,col3],...}
 # where indexRow is row's snmp oid end digit (differ for every row)
 # no error handling
-def _snmpGetTable(mainoid,host,port,readcommunity):
+def taskSnmpGet(oid,host,port,readcommunity,getTable=False):
     # sample oid for table
     # oid=".1.3.6.1.2.1.4.20"
-    if mainoid[0]=='.':
-        mainoid=mainoid[1:]
+    if oid[0]=='.':
+        oid=oid[1:]
     res={}
 
-    req = snmp.nextCmd(snmp.SnmpEngine(),
+    reqFunction=snmp.nextCmd if getTable else snmp.getCmd
+    req = reqFunction(snmp.SnmpEngine(),
                 snmp.CommunityData(readcommunity),
                 snmp.UdpTransportTarget((host, port)),
                 snmp.ContextData(),
-                snmp.ObjectType(snmp.ObjectIdentity(mainoid)))
+                snmp.ObjectType(snmp.ObjectIdentity(oid)))
 
     while True:
         reply=next(req)
@@ -526,9 +524,14 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
         if reply[0] is None:
             # ok result example(None, 0, 0, [ObjectType(ObjectIdentity(ObjectName('1.3.6.1.2.1.1.3.0')), TimeTicks(1245987))])
             varBind=reply[3][0]
-            oid=str(varBind[0])
+            value=_snmpFormatValue(varBind[1])
 
-            # oid like 1.3.6.1.2.1.4.20.1.2.127.0.0.1
+            if not getTable:
+                return value
+
+            curOid=str(varBind[0])
+
+            # curOid like 1.3.6.1.2.1.4.20.1.2.127.0.0.1
             # where 1.3.6.1.2.1.4.20 - main (table) oid
             # 1 - column index (usually starts from 1, but can differ)
             # 2 - row index (usually starts from 1, but can differ)
@@ -536,15 +539,15 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
             
             # load first entry from table oid
             entryIndex=1
-            prefix=mainoid+'.'+str(entryIndex)+"."
+            prefix=oid+'.'+str(entryIndex)+"."
 
-            if not oid.startswith(prefix):
+            if not curOid.startswith(prefix):
                 break
 
-            oid=oid[len(prefix):]
-            # now oid like 2.127.0.0.1
+            curOid=curOid[len(prefix):]
+            # now curOid like 2.127.0.0.1
 
-            splitted=oid.split('.')
+            splitted=curOid.split('.')
 
             # sometimes colindex can skip some cols: 1,2, 4,5,6
             colIndex=int(splitted[0])
@@ -552,7 +555,6 @@ def _snmpGetTable(mainoid,host,port,readcommunity):
             # index value = row index + index row value
             # sometimes inde row value is empty - so use only row value
             indexValue='.'.join(splitted[1:])
-            value=_snmpFormatValue(varBind[1])
 
             if indexValue not in res.keys():
                 res[indexValue]=[]
@@ -596,12 +598,13 @@ def taskSnmpTableValue(include, oid, host, port, readcommunity, indexcol, dataco
 
     tableId=oid+"&"+host+"&"+str(port)+"&"+readcommunity
     if tableId not in tableDict.keys():
-        tableList=list(_snmpGetTable(oid,host,port,readcommunity).values())
+        tableList=list(taskSnmpGet(oid,host,port,readcommunity,getTable=True).values())
         if tableList:
             if len(tableList[0])-1<max(indexcol,datacol):
                 # print(tableList)
                 raise Exception("значение indexcol или datacol в настройках больше, чем количество столбцов в таблице snmp")
-            table={row[indexcol]:row[datacol] for row in tableList}
+            # key type is always string. Value type is value-specific
+            table={str(row[indexcol]):row[datacol] for row in tableList}
         else:
             table={}
         tableDict[tableId]=table
@@ -692,7 +695,17 @@ def parseString(string,include):
 # If "utf8" flag is set - decode console stdout as cp65001 else cp866
 #   (it is usefull with system commands on russian windows locale. All output messages became english)
 # timeout is optional time limit for running shell command in seconds
+
 def taskShellTableValue(command,include,utf8,timeout):
+    
+    commandList=None
+    
+    # when command is list - use it directly
+    # when command is string - try to compile list from it
+    if type(command)==list:
+        commandList=command
+        command=" ".join(commandList)
+
     assert type(command)==str
     assert type (include)==list
     assert type(utf8)==bool
@@ -701,24 +714,23 @@ def taskShellTableValue(command,include,utf8,timeout):
         taskShellTableValue.commandDict={}
     commandDict=taskShellTableValue.commandDict
 
-
-
     if command not in commandDict.keys():
         
-        # when file name or path contain spaces - full path must be included in single or double quotes
-        # like "c:\long path\some program.exe" -param1 -param2  
-        quoteSymbol=False
-        if command[0]=='"' or command[0]=="'":
-            quoteSymbol=command[0]
-            # check closing quote
-            if command.find(quoteSymbol,1)==-1:
-                raise Exception("Если путь к программе содержит пробелы - используйте кавычки")
-            exeNamePath=command.split(quoteSymbol)[1]
-            paramString=command[len(exeNamePath)+2:] # 2 symbols for open and close quotes
-            commandList= [exeNamePath] + paramString.split(" ")
-            commandList=[v for v in commandList if v!=''] #remove empty spaces in case of -param1<space1><space2>-param2
-        else:
-            commandList=command.split(" ")
+        if commandList is None:
+            # when file name or path contain spaces - full path must be included in single or double quotes
+            # like "c:\long path\some program.exe" -param1 -param2  
+            quoteSymbol=False
+            if command[0]=='"' or command[0]=="'":
+                quoteSymbol=command[0]
+                # check closing quote
+                if command.find(quoteSymbol,1)==-1:
+                    raise Exception("Если путь к программе содержит пробелы - используйте кавычки")
+                exeNamePath=command.split(quoteSymbol)[1]
+                paramString=command[len(exeNamePath)+2:] # 2 symbols for open and close quotes
+                commandList= [exeNamePath] + paramString.split(" ")
+                commandList=[v for v in commandList if v!=''] #remove empty spaces in case of -param1<space1><space2>-param2
+            else:
+                commandList=command.split(" ")
 
         # for switching windows console stdout to unicode mode:
         # 1) use shell=True (this param is no need elsewhere)
@@ -895,7 +907,7 @@ def processHeartBeatTasks(tasksToPoll):
             if preset.get('item',None)=='shell':
                 # for security reasons passing external shell commands is not allowed
                 taskConfig.pop('command',None)
-            
+           
             preset.update(taskConfig)
             taskConfig=preset
             item=taskConfig['item']
@@ -928,9 +940,23 @@ def processHeartBeatTasks(tasksToPoll):
                     "datacol":{     "type":int,
                                     "mandatory":True},
                     }))
+            elif item=="snmp":
+                task['value']=taskSnmpGet(**checkParameters(taskConfig,{
+                    "oid":{ "type":str,
+                            "mandatory":True},
+                    "host":{    "type":str,
+                                "mandatory":False,
+                                "default":"127.0.0.1"},
+                    "port":{    "type":int,
+                                "mandatory":False,
+                                "default":161},
+                    "readcommunity":{   "type":str,
+                                        "mandatory":False,
+                                        "default":"public"},
+                    }))
             elif item=="shell":
                 task['value']=taskShellTableValue(**checkParameters(taskConfig,{
-                    "command":{ "type":str,
+                    "command":{ "type":[str,list],
                                 "mandatory":True},
                     "include":{ "type":list,
                                 "mandatory":False,
@@ -955,7 +981,8 @@ def processHeartBeatTasks(tasksToPoll):
                     "applyTo":{"type":[dict,list],
                            "mandatory":True}
                     }))
-
+            elif item=="rabbitMsgTotal":
+                task['value']=taskRabbitMsgTotal()
             else:
                 raise Exception( "Неизвестный тип элемента данных: "+item)
         except Exception as e:

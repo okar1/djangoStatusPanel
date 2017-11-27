@@ -174,13 +174,19 @@ def commitPollResult(timeDbConfig,pollResult,errors):
                 # ex. localhost.localhost.2-6.hddUsed.hdd.1.load.0
                 idParts=item['id'].split('.')
 
+                if len(idParts)<3:
+                    errors.add("wrong item id:"+item['id'])
+                    print("wrong item id:",item['id'])
+                    continue
+
                 # measure id is a parameter name with marker
                 # ex. "item:hddUsed"
                 # measure id hould not contain hostname or another additionals
                 # because group operation (like sum) are allowed only inside single measurement
                 # ex. sum of unprocessed MQ messages for all CBK
                 # see influxDB docs for details
-                measureId="item:"+idParts[3]
+                measureId="item:" +\
+                    (idParts[2] if len(idParts)==3 else idParts[3])
                 # measureId="item:"+item['id']
                 
                 # measure suffix for combo tasks from itemID

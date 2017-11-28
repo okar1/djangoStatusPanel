@@ -96,8 +96,21 @@ def getDbConnection(dbConf):
 def getTasks(dbConnection, defaultPeriod):
     # get period mproperty (no filter need), period is string
 
+    def _getAllAgents():
+        sql="SELECT entity_key,displayname FROM magent WHERE not deleted"
+        try:
+            cur = dbConnection.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+        except Exception as e:
+            error = str(e)
+            return (error, result)
+        return {row[0]:row[1] for row in rows}
+
+
     error = None
     result = {}
+    allAgents=None
 
     # This behemoth is executed once per poll (usually 60 or 120 sec).
     # it costs nearly 900 msec or less for one of our production servers.
@@ -170,11 +183,29 @@ def getTasks(dbConnection, defaultPeriod):
     res={}
     for row in rows:
         tmp=_getAddress(row[6])
+        agentKey=row[0]
+        agentName=row[1]
+        moduleName=row[2]
+        taskkey=row[3]
+
+        if taskkey.find(agentKey)!=0:
+            if allAgents is None:
+                allAgents=_getAllAgents()
+            taskArr=taskkey.split(".")
+            if len(taskArr)<3:
+                error="Неверный ключ задачи: "+taskkey
+                return (error, {})
+            agentKey=taskArr[0]
+            agentName=allAgents.get(agentKey,None)
+            if agentName is None:
+                error="Неверный ключ БК: "+agentName
+                return (error, {})
+
         res.update({
             row[3]: {
-                "agentKey": row[0],
-                "agentName":row[1],
-                "module": row[2],
+                "agentKey": agentKey,
+                "agentName":agentName,
+                "module": moduleName,
                 "itemName": row[4],
                 "enabled":not row[7],
                 "qosEnabled":not row[7],                

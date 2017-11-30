@@ -854,15 +854,30 @@ def taskMediaRecorderControl(applyTo):
                 })
     return res
 
-
+# return ptime in days
+# first 30 minutes after boot - return -1 if shutdown was unexpected
 def taskUptime():
     # like 20171130184633.498674+180
     pattern=[r"(\d{14})\.\d+\+\d+"]
-    lastBootTimeList=taskShellTableValue(command="wmic os get lastbootuptime",include=pattern,utf8=True,timeout=5)
+    lastBootTimeList=taskShellTableValue(command="wmic os get lastbootuptime",include=pattern,utf8=False,timeout=5)
     if len(lastBootTimeList)!=1:
         raise Exception("Неверное значение времени "+str(lastBootTimeList))
     # lastBootTimeStr like ["20171130184633"]
     uptimeDays=round((datetime.now()-datetime.strptime(lastBootTimeList[0],bootTimeStampFormat)).total_seconds()/84400,4)
+
+    # first 30 minutes after startup query last kernel power event
+    if uptimeDays<0.02:
+            pattern=["Event ID: (\d+)"]
+            # wevtutil qe System /c:1 /rd:true /f:text /q:"*[System[Provider[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=109 or EventID=41)]]"
+            commandList=["wevtutil", "qe","System", "/c:1" ,"/rd:true", "/f:text","/q:*[System[Provider[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=109 or EventID=41)]]"]
+            lastBootEventCode=taskShellTableValue(command=commandList,include=pattern,utf8=False,timeout=5)
+            if len(lastBootEventCode)!=1:
+                raise Exception("Получено неверное значение: "+str(lastBootEventCode))
+            evCode=lastBootEventCode[0]
+            # 109 - normal shutdown 41 - unexpected shutdown
+            if evCode!='109':
+                # return -1 on unexpected shutdown
+                uptimeDays=-1
     return uptimeDays
 
 
@@ -1034,7 +1049,6 @@ def processHeartBeatTasks(tasksToPoll):
         delattr(taskShellTableValue, "commandDict")
     if hasattr(taskSnmpTableValue,"tableDict"):
         delattr(taskSnmpTableValue, "tableDict")        
-
 
 def agentStart():
     print("agent start")

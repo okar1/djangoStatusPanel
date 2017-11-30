@@ -3,6 +3,7 @@
 import pika
 import json
 from datetime import datetime
+import time
 
 # pyasn1 help http://www.red-bean.com/doc/python-pyasn1/pyasn1-tutorial.html#1.1.7
 from pysnmp import hlapi as snmp
@@ -49,6 +50,7 @@ sendToExchange='heartbeatAgentReply'
 maxMsgTotal=50000
 amqpPort = 5672
 timeStampFormat="%Y%m%d%H%M%S"
+bootTimeStampFormat="%Y%m%d%H%M%S"
 agentProtocolVersion=4
 localRoutingKey="local"
 isTestEnv= True if len(sys.argv) == 2 and sys.argv[0] == 'manage.py' and sys.argv[1] == 'runserver' else False
@@ -853,6 +855,17 @@ def taskMediaRecorderControl(applyTo):
     return res
 
 
+def taskUptime():
+    # like 20171130184633.498674+180
+    pattern=[r"(\d{14})\.\d+\+\d+"]
+    lastBootTimeList=taskShellTableValue(command="wmic os get lastbootuptime",include=pattern,utf8=True,timeout=5)
+    if len(lastBootTimeList)!=1:
+        raise Exception("Неверное значение времени "+str(lastBootTimeList))
+    # lastBootTimeStr like ["20171130184633"]
+    uptimeDays=round((datetime.now()-datetime.strptime(lastBootTimeList[0],bootTimeStampFormat)).total_seconds()/84400,4)
+    return uptimeDays
+
+
 # taskstoPoll like {Trikolor_NN.Heartbeat.1:{"module":"heartbeat",'type': 'qtype1', 'agentKey': 'Trikolor_NN', 'config': {'header': 'task1'}}}
 # keys in every heartbeat task : 
 #   module - always == "heartbeat"
@@ -983,6 +996,8 @@ def processHeartBeatTasks(tasksToPoll):
                     }))
             elif item=="rabbitMsgTotal":
                 task['value']=taskRabbitMsgTotal()
+            elif item=="uptime":
+                task['value']=taskUptime()
             else:
                 raise Exception( "Неизвестный тип элемента данных: "+item)
         except Exception as e:
@@ -1025,11 +1040,13 @@ def agentStart():
     print("agent start")
     errors=set()
     tasksToPoll={}
-    updateShovels(mqConf,errors)
     mqAmqpConnection=getMqConnection(mqConf,errors,maxMsgTotal)
     errors.update(receiveHeartBeatTasks(mqAmqpConnection,tasksToPoll,receiveFromQueue))
     processHeartBeatTasks(tasksToPoll)
     errors.update(sendHeartBeatTasks(mqAmqpConnection,tasksToPoll,sendToExchange))
+    # print("sleep 10 sec")
+    time.sleep(10)
+    updateShovels(mqConf,errors)
     if errors:
         for e in errors:
             print(e)

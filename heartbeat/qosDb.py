@@ -2,6 +2,7 @@
 import psycopg2
 import re
 import json
+import os
 
 service_type=0
 broadcasting_type=1
@@ -264,7 +265,8 @@ def getScheduledTaskKeys(dbConnection,timeStamp,zapas):
     profiles={row[0]:row[1]['details'] for row in rows}
 
 
-    with open('probe-config-defaults-v2.json',encoding="UTF-8") as f:
+    dirName=os.path.dirname(__file__)
+    with open( os.path.join(dirName,'probe-config-defaults-v2.json'),encoding="UTF-8") as f:
         data = f.read()
     probeConfigFull=json.loads(data)
     probeConfigServices=probeConfigFull['services']

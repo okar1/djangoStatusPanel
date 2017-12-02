@@ -1,62 +1,44 @@
 # -*- coding: utf-8 -*-
 import psycopg2
 import re
+import json
 
-# qos services codes
-PROGRAM=0
-SNMP=1
-MEASUREMENT=2
-SELF=3
-SCAN=4
+service_type=0
+broadcasting_type=1
+medium_type=2
+delivery_method=3
 
-# wich modules are allowed to run by specific qos device and qos module group
-# like {device:{serviceType:{"modules":{modules}}} or {"module_groups":"{modules}}
-qosScheduleDeviceToModuleMapping={
-    "__other__":{
-        PROGRAM:{ 
-            "module_groups":{
-                "RF":{"RfMeasurement"},
-                "TS":{"TR101290"},
-                "TS":{"TR101290","AtscA78","TSStructure"},
-                "IP":{"IPStatistics"},
-                "IP_STATISTICS":{"IPStatistics"},
-                "RAW_RECORDING":{"RawDataRecorder"},
-                "EMERGENCY_RECORDING":{"MediaRecorder"},
-                "VIDEO_HASH":{"ImageSearch","ClipSearch","VideoFingerprint","TickerDetector"},
-                "AUDIO_HASH":{"AudioFingerprint"},
-                "RECORDING":{"MediaRecorder"},
-                "STREAMING":{"MediaStreamer"},
-                "SUBTITLES":{"CaptionsAnalyzer"},
-                "AD":{"MpegTSSplicingControlModule"},
-                "AUDIO":{"LoudnessR128","LoudnessA85"},
-                "VIDEO":{"QoEVideo"},
-                "BITRATE":{"MpegTSStatisticsIPTVControlModule"},
-            },
-        },
-        MEASUREMENT:{
-            'modules': {'MpegTSStatisticsIPTVControlModule','TR101290'},
-        },
-        SCAN:{
-            "modules":{"TSStructure",'AnalogScanner'}},
+codeToName={
+    service_type:{
+        0:"PROGRAM",
+        1:"SNMP",
+        2:"MEASUREMENT",
+        3:"SELF",
+        4:"SCAN"
     },
-    "SNMP":{
-        SNMP:{
-            'modules': {'GenericMonitor'},
-        },
+    broadcasting_type:{
+        0:"TV",
+        1:"RF"
     },
-    "SELF":{
-        SELF:{
-            "modules":{"SelfMonitor"}},
+    medium_type:{
+        0:"CABLE",
+        1:"IP",
+        2:"ETHER"
     },
-    "MATCH":{
-        PROGRAM:{
-            'modules': {'Match'},
-        }
-    }
+    delivery_method:{
+        0:"DIGITAL",
+        1:"ANALOG"
+    },
 }
 
+sampletype_logo=0
+sampletype_vdRadio=1
+sampletype_zipRadio=3
+sampletype_vdTV=4
+sampletype_zipTV=2
 
- 
+sampletypesForImageSearch={sampletype_logo,sampletype_zipTV}
+sampletypesForClipSearch={sampletype_vdRadio,sampletype_zipRadio,sampletype_vdTV}
 
 # get period from mresultconfiguration + filter modules, period is int
 '''
@@ -91,26 +73,30 @@ def getDbConnection(dbConf):
     return psycopg2.connect(conString)
 
 
+def getAllAgents():
+    if not hasattr(getAllAgents,"__result__"):
+        getAllAgents.__result__={}
+    return getAllAgents.__result__
+
+
 # return tuple with error strings and all active task like 
 # (error,{taskKey: {"agentKey":"aaa", "period":10}} )
 def getTasks(dbConnection, defaultPeriod):
     # get period mproperty (no filter need), period is string
 
-    def _getAllAgents():
-        sql="SELECT entity_key,displayname FROM magent WHERE not deleted"
-        try:
-            cur = dbConnection.cursor()
-            cur.execute(sql)
-            rows = cur.fetchall()
-        except Exception as e:
-            error = str(e)
-            return (error, result)
-        return {row[0]:row[1] for row in rows}
-
-
     error = None
     result = {}
     allAgents=None
+
+    sql="SELECT entity_key,displayname FROM magent WHERE not deleted"
+    try:
+        cur = dbConnection.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+    except Exception as e:
+        error = str(e)
+        return (error, result)
+    getAllAgents.__result__={row[0]:row[1] for row in rows}
 
     # This behemoth is executed once per poll (usually 60 or 120 sec).
     # it costs nearly 900 msec or less for one of our production servers.
@@ -129,7 +115,7 @@ def getTasks(dbConnection, defaultPeriod):
         task.displayname as "displayname",
         prop.value as "period",
         urls.url,
-        task.disabled
+        task.disabled        
     FROM 
         magent as "agent", mmediaagentmodule as "module" LEFT JOIN (
                 -- mmediaagentmodule_mstream is a link table from mmediaagentmodule to both mrecordedstream and mlivestream
@@ -190,7 +176,7 @@ def getTasks(dbConnection, defaultPeriod):
 
         if taskkey.find(agentKey)!=0:
             if allAgents is None:
-                allAgents=_getAllAgents()
+                allAgents=getAllAgents()
             taskArr=taskkey.split(".")
             if len(taskArr)<3:
                 error="Неверный ключ задачи: "+taskkey
@@ -246,14 +232,9 @@ def getOriginatorIdForAlertType(dbConnection, alertType):
         return(str(e), None)
 
 
-# check wich modules are scheduled to run on channels in specified time
-# returns dict like {agent:{1:{GenericMonitor},3:{CaptionsAnalyzer,MediaRecorder}, 5:{}}}
-# where agent - agentkey
-# number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
-# set  - is modules that scheduled to run in specified timestamp
-# if some channel id is absent - this channel is absent in schedule
 # when schedule not supported by qos - returns none
-def getChannelScheduledModules(dbConnection,timeStamp,zapas):
+# else returns set of task keys
+def getScheduledTaskKeys(dbConnection,timeStamp,zapas):
     
     # check that db schema supports task schedule feature 
     sql="""
@@ -282,62 +263,145 @@ def getChannelScheduledModules(dbConnection,timeStamp,zapas):
     rows = cur.fetchall()
     profiles={row[0]:row[1]['details'] for row in rows}
 
+
+    with open('probe-config-defaults-v2.json',encoding="UTF-8") as f:
+        data = f.read()
+    probeConfigFull=json.loads(data)
+    probeConfigServices=probeConfigFull['services']
+    probeConfigDevices=probeConfigFull['devices']
+    probeConfigModules=probeConfigFull['modules']
+
     sql="""
         SELECT 
-        agent.entity_key as "agentkey",
-        task.channel_id as "channelid",
-        devices.type as "device",
-        task.profile_id as "profileid",
-        bool_or({0}>sc.begin_time and {1}<least(sc.end_time,sc.until)) as "channelactive",
-        services.service_type as "servicecode"
-        FROM qos.task as "task", qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices", qos.mass_media_monitoring as "services"
-        WHERE task.channel_id=services.id and task.probe_id=agent.id and task.id=sc.task_id and task.device_id=devices.id and devices.deleted=false
-        GROUP BY agent.entity_key, task.channel_id, task.profile_id, devices.type, services.service_type
+            agent.entity_key as "agentkey",
+            task.channel_id,
+            devices.type as "device",
+            task.profile_id,
+            services.service_type,
+            services.broadcasting_type,
+            services.medium_type,
+            services.delivery_method,
+            array_agg(samples.sampletype) as "sampletypes",
+            CASE
+              --load parameters for selfMonitor only
+              WHEN service_type=3 then services.parameters
+              ELSE null
+            END as "parameters"
+        FROM 
+            qos.task_schedule as "sc", qos.magent as "agent", qos.devices as "devices", qos.mass_media_monitoring as "services",
+            --join sample types specified for this task and aggregate them as list
+            qos.task as "task" LEFT JOIN (SELECT task_id,type as "sampletype" from mass_media_sample_group ) as "samples" ON task.id=samples.task_id
+        WHERE
+            task.channel_id=services.id and task.probe_id=agent.id and task.id=sc.task_id and task.device_id=devices.id and devices.deleted=false
+            and {0}>sc.begin_time and {1}<least(sc.end_time,sc.until)
+        GROUP BY 
+            agent.entity_key,
+            task.channel_id,
+            devices.type,
+            task.profile_id,
+            services.service_type,
+            services.broadcasting_type,
+            services.medium_type,
+            services.delivery_method,
+            services.parameters
     """.format(str(timeStamp-zapas),str(timeStamp+zapas))
     
     cur = dbConnection.cursor()
     cur.execute(sql)
     rows = cur.fetchall()
 
+
     if len(rows)==0:
         return None
 
-    def _getModulesForDevice(channelIsActive,device,serviceCode,allowedGroups):
-        res=set()
-
-        # if channel is not scheduled now - cancel module search
-        if not channelIsActive:
-            return res
-
-        allMap=qosScheduleDeviceToModuleMapping
-        
-        # mapping for current device type
-        if device in allMap.keys():
-            devMap=allMap[device]
-        else:
-            devMap=allMap["__other__"]
-
-        # mapping for current service type (service type is integer code)
-        srvMap=devMap.get(serviceCode,{})
-
-        # if some modules mapped to this service type (in settings) - add them
-        res.update(srvMap.get('modules',set()))
-
-        # if some groups mapped to this service type (in settings) - add modules for allowed groups
-        groupMap=srvMap.get("module_groups",{})
-        if groupMap:
-            for groupName, groupIsAllowed in allowedGroups.items():
-                if groupIsAllowed and (groupName in groupMap.keys()):
-                    res.update(groupMap[groupName])
-
-        return res 
-
-    res={}
+    res=set()
     for row in rows:
-        agentDict=res.setdefault(row[0],{})
-        modulesSet=agentDict.setdefault(row[1],set())
-        modulesSet.update(_getModulesForDevice(row[4],row[2],row[5],profiles.get(row[3],{})))
-    #     if row[1]==2139:
-    #         print(_getModulesForDevice(row[4],row[2],row[5],row[3]['details']))
-    # print(res)
+        agentKey, channelId, device, profileId, *configCodes, sampleTypes, taskParameters = row
+
+        # "MATCH" device supports only "Match" module
+        if device=="MATCH":
+            moduleNames={"Match."}
+        # find allowed modules for non-"MATCH" devices
+        else:
+            # confignames contains level keys in probeConfigServices structure like
+            # ["PROGRAM","TV","CABLE","DIGITAL"]
+            # or 
+            # ["SCAN", None, None ,None]
+            configNames=[]
+            for i,code in enumerate(configCodes):
+                configNames+=[codeToName.get(i,{}).get(code,None)]
+
+            # scan structure from DB like 
+            # {"AD": false, "RF": false, "TS": true, "AUDIO": false, "VIDEO": true, "BITRATE": false, ...}
+            # and collect allowedProfiles like
+            # {"TS","VIDEO"}
+
+            # service_type is "PROGRAM"
+            if configCodes[0]==0:
+                allowedProfiles=set({pName: pAllowed for pName,pAllowed in profiles[profileId].items() if pAllowed})
+            # service_type is "SELF"
+            elif configCodes[0]==3:
+                allowedProfiles=set({pName: pAllowed for pName,pAllowed in taskParameters['profiles'].items() if pAllowed})
+            # allow all profiles for other service types
+            else:   
+                allowedProfiles=set()
+            
+            # scan probeConfigServices structure and get allowed module profile names wich are allowed to run now
+            # moduleProfiles like {"TR101290","MpegTSStatisticsIPTVControlModule_STREAM"}
+
+            moduleProfiles=set()
+            levelData=probeConfigServices
+            for nextLevelName in configNames:
+                if 'signals' in levelData:
+                    levelData=levelData['signals']
+                if 'config' in levelData:
+                    levelData=levelData['config']
+                if nextLevelName is not None and nextLevelName in levelData:
+                    levelData=levelData[nextLevelName]
+                if 'profile' in levelData:
+                    allModuleProfiles=levelData['profile']
+
+                    if not allowedProfiles:
+                        tmp=allModuleProfiles
+                    else:
+                        tmp={pName:pValue for pName,pValue in allModuleProfiles.items() if pName in allowedProfiles}
+
+                    for profilesList in tmp.values():
+                        moduleProfiles.update(set(profilesList))
+                    break
+
+            # TODO: scan probeConfigDevices structure and check that device supports moduleProfiles and signal types.
+            # Exclude moduleProfiles that are not supported by device
+
+            pass
+
+            # scan probeConfigModules structure and convert moduleProfiles names to module name with dot and perfix
+            # moduleNamePerfix like {"TR101290.","MpegTSStatisticsIPTVControlModule.","SelfMonitor.SMCPU_"}
+            # (perfixes mainly used in SelfMonitor only)
+
+            moduleNames=set()
+            for profileName in moduleProfiles:
+                p=probeConfigModules[profileName]
+                if "prefix" in p:
+                    prefix=p['prefix']+"_"
+                else:
+                    prefix=""
+                moduleNames.add(p['module']+"."+prefix)
+        # endif not "MATCH"
+
+        # convert moduleNames to full-specified taskKeys like "MyAgent.SelfMonitor.SMCPU_2223"
+        # add taskKeys to res
+        sampleTypes=set(sampleTypes)
+        for moduleNameAndPerfix in moduleNames:
+            # add ImageSearch and ClipSearch tasks only if samples of corresponding type are specified
+            if moduleNameAndPerfix=="ImageSearch.":
+                if not (sampleTypes & sampletypesForImageSearch):
+                    continue
+            if moduleNameAndPerfix=="ClipSearch.":
+                if not (sampleTypes & sampletypesForClipSearch):
+                    continue
+            res.add(agentKey+"."+moduleNameAndPerfix+str(channelId))
+
+    # endfor row
+
     return res

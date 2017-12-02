@@ -210,7 +210,7 @@ class MainView(BoxFormView):
                 name+=")"
 
             if not task['enabled']:
-                name += " : Задача неактивна "
+                name += " : Задача не контролируется "
 
             if 'timeStamp' in task.keys() and task.get('style', None) != 'ign':
                 idleTime = datetime.utcnow() - task['timeStamp']

@@ -731,18 +731,15 @@ def applyHostAliases(allServerAliases,server,vTasks):
 # * task is placed inside existing heartbeat host, that is disabled
 def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTimeStamp,serverName,vTasksToPoll,vServerErrors):
     # request qos db for channel status. Which chnnels are actve now and which are not
-    channelScheduledModules={}
+    scheduledTaskKeys=set()
     # zapas is seconds count after channel becomes active and before it becomes inactive
     # in "zapas" period channelSchedule still retutns active=false (in really it already=true)
     # zapas is used to prevent fake alarms at schedule intervals borders
     zapas=pollingPeriodSec
     if serverDB:
         try:
-            # get channel schedule from qos db like{agent:{1:{GenericMonitor},3:{CaptionsAnalyzer,MediaRecorder}, 5:{}}}
-            # where agent - agentkey
-            # number - integer channel id (tasks with schedule support has taskkey like someAgentKey.CaptionsAnalyzer.869)
-            # value - set of modules scheduled to run in specified timestamp
-            channelScheduledModules=qosDb.getChannelScheduledModules(serverDB, pollStartTimeStamp, zapas)
+            # get set with task keys that are scheduled now
+            scheduledTaskKeys=qosDb.getScheduledTaskKeys(serverDB, pollStartTimeStamp, zapas)
         except Exception as e:
             vServerErrors.update(formatErrors([str(e)], serverName, "channelSchedule"))
             traceback.print_exc(file=sys.stdout)
@@ -758,44 +755,35 @@ def disableQosTasks(allServerHostEnabled,serverDB,pollingPeriodSec,pollStartTime
             continue
 
         # schedule feature not supported
-        if channelScheduledModules is None:
-            continue
+        if scheduledTaskKeys is not None:
+            if taskKey in scheduledTaskKeys:
+                taskData['scheduled']=True
+            else:    
+                taskData['enabled']=False
 
-        #check that qos task is paused by schedule 
-        agentKey=taskData['agentKey']
-        agentDict=channelScheduledModules.get(agentKey,False)
-        # if agentDict is absent - this host is absent in schedule
-        # so, treat all such tasks as continuous
-        if agentDict != False:
-            # check that taskkey contains int channel number like 2 in  someAgent.LoudnessR128.2
-            s=re.search("\.\w*[\._](\d*)$",taskKey)
-            if s:
-                channelNumber=int(s.group(1))
-                moduleName=taskData['module']
-                # channel present in schedule
-                # else treat such task as continuous
-                if channelNumber in agentDict.keys():
-                    # some module can absent in agentdict if it not described in qosScheduleDeviceToModuleMapping
-                    # ex. when new module types are added to qos
-                    # such situations will raise fake errors.
-                    # Update qosScheduleDeviceToModuleMapping to avoid this
-                    if moduleName in agentDict[channelNumber]:
-                        taskData['scheduled']=True
-                    else:
-                        taskData['scheduled']=False
-                        taskData['enabled']=False
-        if 'scheduled' not in taskData:
-            taskData['error']='Задача отсутствует в расписании'
-        # if taskKey=='KARASEV-O-01.SelfMonitor.SMCPU_5':
-        #     print(taskData)
-        #     print(agentDict)
-        #     print(channelScheduledModules)
-
-        # endfor task
-        
-        # debug disabling for all qos tasks. testing alarms
-        # taskData['enabled']=False
     # endfor task
+
+    if scheduledTaskKeys is not None:
+        taskKeys=set(vTasksToPoll)
+        # tasks that must exist according to schedule, but actually not exist
+        absentTaskKeys=scheduledTaskKeys-taskKeys
+        # create fake tasks with flags "scheduled" and "disabled"
+        # it will cause error for such tasks after some timeout
+        for absentTaskKey in absentTaskKeys:
+            tmp=absentTaskKey.split('.')
+            vTasksToPoll[absentTaskKey]={
+                "agentKey": absentTaskKey,
+                "agentName":qosDb.getAllAgents()[tmp[0]],
+                "module": tmp[1],
+                "itemName": "",
+                'scheduled':True,
+                "enabled": False,
+                "qosEnabled": False,
+                "period": pollingPeriodSec,
+                "serviceIp":  None,
+                "servicePort":  None,
+            }
+            # print("task absent: "+absentTaskKey)
 
 
 # run heartbeat agent locally in server context to process tasks with localroutingkey

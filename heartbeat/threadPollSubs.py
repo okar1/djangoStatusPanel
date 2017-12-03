@@ -491,6 +491,11 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
             if task.get('style', None) == 'rem':
                 agentHasErrors.add(boxName)
 
+            # add module information as tag for view
+            # tag support in view will be maybe implemented later
+            if 'module' in task:
+                taskData.update({"tags":[task['module']]})
+
             # processing errors for tasks without timestamp and tasks with old timestamp
             # taskStyle = task.get('style', None)
             # if taskStyle is not None:
@@ -571,6 +576,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
             # count of not-disabled tasks
             count = sum([record.get("style", None) != "ign"
                         for record in poll['data']])
+
             if count > 0:
                 # count of error tasks
                 errCount = sum([record.get("style", None) == "rem"
@@ -585,6 +591,16 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
                     errHead = poll['pollServer'] + " : " + poll['name']
                 poll['error'] = "{0} : Обнаружено ошибок: {1} из {2}".format(
                     errHead, errCount, count)
+        else:
+            # count of not-disabled and not-heartbeat tasks
+            countNoDisabledNoHb = \
+                sum([record.get("style", None) != "ign"
+                    for record in poll['data']
+                    if "tags" in record and 'heartbeat' not in record['tags']])
+
+            # mark box as disabled if all it non-hb tasks are disabled
+            if countNoDisabledNoHb==0:
+                poll['enabled']=False
 
     return pollResult
 
@@ -593,8 +609,10 @@ def pollResultSort(vPollResult):
     # sort pollresults like servername & boxname, make boxes with errors first
     # also look views.py/makeBoxCaption for box caption rule
     vPollResult.sort(key=lambda v: ("0" if v.get("servertask",False) and "error" in v.keys() else
-                                    "1" if "error" in v.keys() else
-                                    "2") + v['pollServer']+" "+v['name'])
+                                    "1" if "error" in v.keys() else 
+                                    "3" if v.get('enabled',True)==False else
+                                    "2")
+                                    + v['pollServer']+" "+v['name'])
 
 
 def qosGuiAlarm(tasksToPoll, oldTasks, serverName, serverDb, mqConf, opt, vServerErrors):
@@ -1017,7 +1035,7 @@ def formatTasksValues(tasksToPoll):
 # some heartbeat tasks can have "applyTo" field, wich means this task takes another tasks parameters as argument
 # ex. task "mediaRecorderControl" is applying to tasks "mediaRecorder"
 # here we process applyTo field from hb task settings and substitute names with actual task id and parameters
-def fillApplyTo(tasksToPoll,vHbTasks):
+def fillApplyTo(tasksToPoll,vHbTasks,serverName,vServerErrors):
     settiings={
     # hb task item name
     "MediaRecorderControl":{
@@ -1058,10 +1076,10 @@ def fillApplyTo(tasksToPoll,vHbTasks):
                     continue
 
                 if localMode:
-                    # local hb agent must have exactly same name and key like in qos task
+                    # local hb agent must have same name and key like in qos task
                     # for local task was routed correctly
-                    if hbtask['agentName']!=taskData['agentName'] or \
-                            hbtask['agentKey']!=taskData['agentKey']:
+                    if hbtask['agentName'].lower()!=taskData['agentName'].lower() or \
+                            hbtask['agentKey'].lower()!=taskData['agentKey'].lower():
                         continue
 
                 newApplyTo.update({taskKey:{
@@ -1069,6 +1087,11 @@ def fillApplyTo(tasksToPoll,vHbTasks):
                         for f in useFields
                     }})
                 appliedTasks.add(taskKey)
+            
+            # if not newApplyTo:
+            #     errors={"На БК "+hbtask['agentName']+" нет задач Mediarecorder. MediaRecorderControl остановлен."}
+            #     vServerErrors.update(formatErrors(errors, serverName, 'MediaRecorderControl'))
+
             hbtask['config']['applyTo']=newApplyTo
     # endfor hbtasks
 

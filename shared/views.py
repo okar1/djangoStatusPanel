@@ -152,7 +152,7 @@ class BoxFormView(LoginRequiredMixin,MainMenuView):
 					#trim data before send to js with only "id","progress","error" fields
 					def trimTA(p):
 						if type(p)==dict:
-							res={k:str(v) for k,v in p.items() if k in ["progress","error"]}
+							res={k:str(v) for k,v in p.items() if k in ["progress","error","enabled"]}
 							res["id"]=p["id"]
 							return res
 						return p

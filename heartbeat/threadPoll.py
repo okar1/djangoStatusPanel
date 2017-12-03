@@ -87,7 +87,7 @@ def threadPoll():
                     # some heartbeat tasks can have "applyTo" field, wich means this task takes another tasks parameters as argument
                     # ex. task "MediaRecorderControl" is applying to tasks "mediaRecorder"
                     # here we process applyTo field from hb task settings and substitute names with actual task id and parameters
-                    subs.fillApplyTo(tasksToPoll,hbTasks)
+                    subs.fillApplyTo(tasksToPoll,hbTasks,server.name,serverErrors)
 
                 # add heartbeat tasks to taskstopoll.
                 tasksToPoll.update(hbTasks)

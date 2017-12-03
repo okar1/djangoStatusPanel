@@ -71,7 +71,7 @@ class MainView(BoxFormView):
             return {
                     k : makeBoxCaption(k,v,d['pollServer'],addServerName)
                     for k, v in d.items()
-                    if k in ['id', 'name', 'error', 'progress']}
+                    if k in ['id', 'name', 'error', 'progress', 'enabled']}
 
 
         if serverGroupID is None:

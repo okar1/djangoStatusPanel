@@ -34,7 +34,7 @@ function getSelectedBox(){
 	return $( ".ui-selected:first" ).attr('id')
 }
 
-//status "ok" or "error"
+//status "ok" or "error" or "disabled"
 function setBoxStatus(selector,status,progress,errorText){
 
 	if (progress==undefined){
@@ -48,8 +48,9 @@ function setBoxStatus(selector,status,progress,errorText){
 
 	if (status=="error"){
 		selector.css("background-color","#FF7777").attr("title",errorText).children(":first-child").css({"background-color":"red","width":progress+"%"})
-	}
-	else{
+	} else if (status=="disabled"){
+		selector.css("background-color","#545454").removeAttr("title").children(":first-child").css({"background-color":"","width":progress+"%"})
+	}else{
 		selector.css("background-color","").removeAttr("title").children(":first-child").css({"background-color":"","width":progress+"%"})
 	}
 	
@@ -103,7 +104,8 @@ function btClick(){
 }
 
 //boxes [{"id": , "name":}]
-//boxesStatus [{"id": , "progress": , "error": }]
+//boxesStatus [{"id": , "progress": , "error": ,"enabled":false}]
+// enabled is true by default
 // boxRec {'selectedBox': ,'records':}
 // records ["id": , "name": , style: "add/rem"] (style can be ommited)
 //updateNoInteractive true/false
@@ -174,10 +176,11 @@ function updateBoxRecListCallback(boxes, boxesStatus, boxRec,updateNoInteractive
 					if ('error' in status){
 						statusText='error'
 					}
-					else{
+					else if ('enabled' in status && status.enabled=="False"){
+						statusText='disabled'
+					}else{
 						statusText='ok'
 					}
-
 					setBoxStatus($("[id='"+this.id+"']"),statusText,status.progress,status.error)
 					break
 				}

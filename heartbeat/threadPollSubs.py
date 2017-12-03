@@ -596,7 +596,7 @@ def makePollResult(tasksToPoll, serverName, serverErrors,delayedServerErrors):
             countNoDisabledNoHb = \
                 sum([record.get("style", None) != "ign"
                     for record in poll['data']
-                    if "tags" in record and 'heartbeat' not in record['tags']])
+                    if ("tags" in record) and ('heartbeat' not in record['tags'])])
 
             # mark box as disabled if all it non-hb tasks are disabled
             if countNoDisabledNoHb==0:
@@ -1047,6 +1047,7 @@ def fillApplyTo(tasksToPoll,vHbTasks,serverName,vServerErrors):
         }
     }
     appliedTasks=set()
+    errors=set()
 
     for hbtask in vHbTasks.values():
         applyTo=hbtask.setdefault('config',{}).pop('applyTo',None)
@@ -1069,10 +1070,11 @@ def fillApplyTo(tasksToPoll,vHbTasks,serverName,vServerErrors):
             # This hbagent reseives ALL mediarecorder task with their real ip.
             # and makes non-local polling of them.
             localMode="local" in applyTo
+            targetHostFound=False
 
             newApplyTo={}
             for taskKey, taskData in tasksToPoll.items():
-                if not taskData['enabled'] or taskData['module'] not in target:
+                if taskData['module'] not in target:
                     continue
 
                 if localMode:
@@ -1082,22 +1084,31 @@ def fillApplyTo(tasksToPoll,vHbTasks,serverName,vServerErrors):
                             hbtask['agentKey'].lower()!=taskData['agentKey'].lower():
                         continue
 
+                targetHostFound=True
+
+                # assert that target found if we found any corresponding tasks (even disabled)
+                # this disables error "no tasks found" in case if tasks are disabled now
+                if not taskData['enabled']:
+                    continue
+
                 newApplyTo.update({taskKey:{
                     f: "127.0.0.1" if localMode and f=="serviceIp" else taskData.get(f,None)
                         for f in useFields
                     }})
                 appliedTasks.add(taskKey)
             
-            # if not newApplyTo:
-            #     errors={"На БК "+hbtask['agentName']+" нет задач Mediarecorder. MediaRecorderControl остановлен."}
-            #     vServerErrors.update(formatErrors(errors, serverName, 'MediaRecorderControl'))
+            if not targetHostFound:
+                errors.add("На {0} ({1}) нет задач qos. Задача {3} остановлена.".
+                    format(hbtask['agentName'],hbtask['agentKey'],target,item))
+                
 
             hbtask['config']['applyTo']=newApplyTo
     # endfor hbtasks
-
+    
     target=settiings['MediaRecorderControl']['target']
     # disable target (mediaRecorder) tasks that was not applied from any mediaRecorderControl
     for taskKey, taskData in tasksToPoll.items():
         if taskData['module'] in target and taskKey not in appliedTasks:
             taskData['enabled']=False
 
+    vServerErrors.update(formatErrors(errors, serverName, 'MediaRecorderControl'))

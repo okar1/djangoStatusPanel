@@ -27,12 +27,6 @@
       "id": "influxdb",
       "name": "InfluxDB",
       "version": "1.0.0"
-    },
-    {
-      "type": "panel",
-      "id": "table",
-      "name": "Table",
-      "version": ""
     }
   ],
   "annotations": {
@@ -44,7 +38,7 @@
   "hideControls": false,
   "id": null,
   "links": [],
-  "refresh": "30s",
+  "refresh": "5m",
   "rows": [
     {
       "collapse": false,
@@ -57,17 +51,12 @@
           "dashes": false,
           "datasource": "${DS_DB}",
           "fill": 1,
-          "height": "",
-          "id": 1,
+          "id": 4,
           "legend": {
-            "alignAsTable": false,
             "avg": false,
             "current": false,
-            "hideEmpty": false,
-            "hideZero": false,
             "max": false,
             "min": false,
-            "rightSide": false,
             "show": true,
             "total": false,
             "values": false
@@ -87,12 +76,11 @@
           "steppedLine": false,
           "targets": [
             {
-              "alias": "$tag_hostkey $tag_msuffix",
               "dsType": "influxdb",
               "groupBy": [
                 {
                   "params": [
-                    "10m"
+                    "2m"
                   ],
                   "type": "time"
                 },
@@ -104,9 +92,129 @@
                 },
                 {
                   "params": [
-                    "msuffix"
+                    "none"
                   ],
-                  "type": "tag"
+                  "type": "fill"
+                }
+              ],
+              "measurement": "/^item:rabbitMsgTotal/",
+              "orderByTime": "ASC",
+              "policy": "default",
+              "query": "select sum(last) from (SELECT last(\"value\") FROM /^item:rabbitMsgTotal/ WHERE (\"server\" =~ /^$server$/)  GROUP BY \"hostkey\" fill(none)) WHERE $timeFilter GROUP BY time(10m)",
+              "rawQuery": true,
+              "refId": "A",
+              "resultFormat": "time_series",
+              "select": [
+                [
+                  {
+                    "params": [
+                      "value"
+                    ],
+                    "type": "field"
+                  },
+                  {
+                    "params": [],
+                    "type": "sum"
+                  }
+                ]
+              ],
+              "tags": [
+                {
+                  "key": "server",
+                  "operator": "=~",
+                  "value": "/^$server$/"
+                }
+              ]
+            }
+          ],
+          "thresholds": [],
+          "timeFrom": null,
+          "timeShift": null,
+          "title": "Количество сообщений на RabbitMQ на всех БК",
+          "tooltip": {
+            "shared": true,
+            "sort": 0,
+            "value_type": "individual"
+          },
+          "type": "graph",
+          "xaxis": {
+            "buckets": null,
+            "mode": "time",
+            "name": null,
+            "show": true,
+            "values": []
+          },
+          "yaxes": [
+            {
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": "0",
+              "show": true
+            },
+            {
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": null,
+              "show": true
+            }
+          ]
+        }
+      ],
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": false,
+      "title": "Dashboard Row",
+      "titleSize": "h6"
+    },
+    {
+      "collapse": false,
+      "height": 287,
+      "panels": [
+        {
+          "aliasColors": {},
+          "bars": false,
+          "dashLength": 10,
+          "dashes": false,
+          "datasource": "${DS_DB}",
+          "fill": 1,
+          "id": 5,
+          "legend": {
+            "avg": false,
+            "current": false,
+            "max": false,
+            "min": false,
+            "show": true,
+            "total": false,
+            "values": false
+          },
+          "lines": true,
+          "linewidth": 1,
+          "links": [],
+          "nullPointMode": "null",
+          "percentage": false,
+          "pointradius": 5,
+          "points": false,
+          "renderer": "flot",
+          "seriesOverrides": [],
+          "spaceLength": 10,
+          "span": 12,
+          "stack": false,
+          "steppedLine": false,
+          "targets": [
+            {
+              "alias": "$tag_hostkey",
+              "dsType": "influxdb",
+              "groupBy": [
+                {
+                  "params": [
+                    "4m"
+                  ],
+                  "type": "time"
                 },
                 {
                   "params": [
@@ -121,7 +229,7 @@
                   "type": "fill"
                 }
               ],
-              "measurement": "/^item:/",
+              "measurement": "/^item:rabbitMsgTotal/",
               "orderByTime": "ASC",
               "policy": "default",
               "refId": "A",
@@ -148,15 +256,9 @@
                 },
                 {
                   "condition": "AND",
-                  "key": "host",
-                  "operator": "=~",
-                  "value": "/^$host$/"
-                },
-                {
-                  "condition": "AND",
-                  "key": "name",
-                  "operator": "=~",
-                  "value": "/^$param$/"
+                  "key": "value",
+                  "operator": ">",
+                  "value": "100000"
                 }
               ]
             }
@@ -164,144 +266,7 @@
           "thresholds": [],
           "timeFrom": null,
           "timeShift": null,
-          "title": "$param",
-          "tooltip": {
-            "shared": true,
-            "sort": 2,
-            "value_type": "individual"
-          },
-          "type": "graph",
-          "xaxis": {
-            "buckets": null,
-            "mode": "time",
-            "name": null,
-            "show": true,
-            "values": []
-          },
-          "yaxes": [
-            {
-              "decimals": 2,
-              "format": "short",
-              "label": "",
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            },
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            }
-          ]
-        }
-      ],
-      "repeat": "param",
-      "repeatIteration": null,
-      "repeatRowId": null,
-      "showTitle": false,
-      "title": "$param",
-      "titleSize": "h6"
-    },
-    {
-      "collapse": false,
-      "height": 251,
-      "panels": [
-        {
-          "aliasColors": {},
-          "bars": false,
-          "dashLength": 10,
-          "dashes": false,
-          "datasource": "${DS_DB}",
-          "fill": 1,
-          "id": 3,
-          "legend": {
-            "avg": false,
-            "current": false,
-            "max": false,
-            "min": false,
-            "show": true,
-            "total": false,
-            "values": false
-          },
-          "lines": true,
-          "linewidth": 1,
-          "links": [],
-          "nullPointMode": "null",
-          "percentage": false,
-          "pointradius": 5,
-          "points": false,
-          "renderer": "flot",
-          "seriesOverrides": [],
-          "spaceLength": 10,
-          "span": 12,
-          "stack": false,
-          "steppedLine": false,
-          "targets": [
-            {
-              "alias": "$tag_name",
-              "dsType": "influxdb",
-              "groupBy": [
-                {
-                  "params": [
-                    "$__interval"
-                  ],
-                  "type": "time"
-                },
-                {
-                  "params": [
-                    "name"
-                  ],
-                  "type": "tag"
-                },
-                {
-                  "params": [
-                    "previous"
-                  ],
-                  "type": "fill"
-                }
-              ],
-              "measurement": "/^host:/",
-              "orderByTime": "ASC",
-              "policy": "default",
-              "refId": "A",
-              "resultFormat": "time_series",
-              "select": [
-                [
-                  {
-                    "params": [
-                      "errorcount"
-                    ],
-                    "type": "field"
-                  },
-                  {
-                    "params": [],
-                    "type": "mean"
-                  }
-                ]
-              ],
-              "tags": [
-                {
-                  "key": "server",
-                  "operator": "=~",
-                  "value": "/^$server$/"
-                },
-                {
-                  "condition": "AND",
-                  "key": "name",
-                  "operator": "=~",
-                  "value": "/^$host$/"
-                }
-              ]
-            }
-          ],
-          "thresholds": [],
-          "timeFrom": null,
-          "timeShift": null,
-          "title": "Ошибки на БК, шт",
+          "title": "Количество сообщений на RabbitMQ по блокам (>100 000 сообщений за последние 24 часа)",
           "tooltip": {
             "shared": true,
             "sort": 2,
@@ -347,149 +312,75 @@
       "height": 250,
       "panels": [
         {
-          "columns": [],
+          "aliasColors": {},
+          "bars": false,
+          "dashLength": 10,
+          "dashes": false,
           "datasource": "${DS_DB}",
-          "fontSize": "100%",
-          "hideTimeOverride": false,
-          "id": 2,
-          "links": [],
-          "pageSize": null,
-          "repeat": null,
-          "scroll": true,
-          "showHeader": true,
-          "sort": {
-            "col": 0,
-            "desc": true
+          "fill": 1,
+          "id": 6,
+          "legend": {
+            "avg": false,
+            "current": false,
+            "max": false,
+            "min": false,
+            "show": true,
+            "total": false,
+            "values": false
           },
+          "lines": true,
+          "linewidth": 1,
+          "links": [],
+          "nullPointMode": "null",
+          "percentage": false,
+          "pointradius": 5,
+          "points": false,
+          "renderer": "flot",
+          "seriesOverrides": [],
+          "spaceLength": 10,
           "span": 12,
-          "styles": [
-            {
-              "alias": "Время",
-              "dateFormat": "YYYY-MM-DD HH:mm:ss",
-              "pattern": "Time",
-              "type": "date"
-            },
-            {
-              "alias": "БК",
-              "colorMode": null,
-              "colors": [
-                "rgba(245, 54, 54, 0.9)",
-                "rgba(237, 129, 40, 0.89)",
-                "rgba(50, 172, 45, 0.97)"
-              ],
-              "dateFormat": "YYYY-MM-DD HH:mm:ss",
-              "decimals": 2,
-              "pattern": "host",
-              "thresholds": [],
-              "type": "string",
-              "unit": "short"
-            },
-            {
-              "alias": "Задача",
-              "colorMode": null,
-              "colors": [
-                "rgba(245, 54, 54, 0.9)",
-                "rgba(237, 129, 40, 0.89)",
-                "rgba(50, 172, 45, 0.97)"
-              ],
-              "dateFormat": "YYYY-MM-DD HH:mm:ss",
-              "decimals": 2,
-              "pattern": "name",
-              "thresholds": [],
-              "type": "string",
-              "unit": "short"
-            },
-            {
-              "alias": "Сервер",
-              "colorMode": null,
-              "colors": [
-                "rgba(245, 54, 54, 0.9)",
-                "rgba(237, 129, 40, 0.89)",
-                "rgba(50, 172, 45, 0.97)"
-              ],
-              "dateFormat": "YYYY-MM-DD HH:mm:ss",
-              "decimals": 2,
-              "pattern": "server",
-              "thresholds": [],
-              "type": "string",
-              "unit": "short"
-            },
-            {
-              "alias": "Ошибка",
-              "colorMode": null,
-              "colors": [
-                "rgba(245, 54, 54, 0.9)",
-                "rgba(237, 129, 40, 0.89)",
-                "rgba(50, 172, 45, 0.97)"
-              ],
-              "dateFormat": "YYYY-MM-DD HH:mm:ss",
-              "decimals": 2,
-              "pattern": "last",
-              "thresholds": [],
-              "type": "string",
-              "unit": "short"
-            },
-            {
-              "alias": "",
-              "colorMode": "row",
-              "colors": [
-                "rgba(250, 55, 55, 0.9)",
-                "rgba(237, 129, 40, 0.89)",
-                "rgba(50, 172, 45, 0.97)"
-              ],
-              "decimals": 2,
-              "pattern": "/.*/",
-              "preserveFormat": false,
-              "sanitize": false,
-              "thresholds": [
-                "0"
-              ],
-              "type": "string",
-              "unit": "short"
-            }
-          ],
+          "stack": false,
+          "steppedLine": false,
           "targets": [
             {
+              "alias": "$tag_hostkey",
               "dsType": "influxdb",
               "groupBy": [
                 {
                   "params": [
-                    "server"
+                    "4m"
+                  ],
+                  "type": "time"
+                },
+                {
+                  "params": [
+                    "hostkey"
                   ],
                   "type": "tag"
                 },
                 {
                   "params": [
-                    "host"
+                    "0"
                   ],
-                  "type": "tag"
-                },
-                {
-                  "params": [
-                    "name"
-                  ],
-                  "type": "tag"
+                  "type": "fill"
                 }
               ],
-              "hide": false,
-              "measurement": "/^item:/",
+              "measurement": "/^item:rabbitMsgTotal/",
               "orderByTime": "ASC",
               "policy": "default",
-              "query": "SELECT \"error\" FROM /^item:/ WHERE (\"server\" =~ /^$server$/ AND \"host\" =~ /^$host$/ AND \"name\" =~ /^$param$/) AND $timeFilter GROUP BY \"server\", \"host\", \"name\"",
-              "rawQuery": false,
               "refId": "A",
-              "resultFormat": "table",
+              "resultFormat": "time_series",
               "select": [
                 [
                   {
                     "params": [
-                      "error"
+                      "value"
                     ],
                     "type": "field"
                   },
                   {
                     "params": [],
-                    "type": "last"
+                    "type": "mean"
                   }
                 ]
               ],
@@ -501,16 +392,48 @@
                 },
                 {
                   "condition": "AND",
-                  "key": "host",
-                  "operator": "=~",
-                  "value": "/^$host$/"
+                  "key": "value",
+                  "operator": "<",
+                  "value": "100000"
                 }
               ]
             }
           ],
-          "title": "Ошибки по всем задачам на $server $host",
-          "transform": "table",
-          "type": "table"
+          "thresholds": [],
+          "timeFrom": null,
+          "timeShift": null,
+          "title": "Количество сообщений на RabbitMQ по блокам (<100 000 сообщений за последние 24 часа)",
+          "tooltip": {
+            "shared": true,
+            "sort": 2,
+            "value_type": "individual"
+          },
+          "type": "graph",
+          "xaxis": {
+            "buckets": null,
+            "mode": "time",
+            "name": null,
+            "show": true,
+            "values": []
+          },
+          "yaxes": [
+            {
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": null,
+              "show": true
+            },
+            {
+              "format": "short",
+              "label": null,
+              "logBase": 1,
+              "max": null,
+              "min": null,
+              "show": true
+            }
+          ]
         }
       ],
       "repeat": null,
@@ -540,46 +463,6 @@
         "refresh": 2,
         "regex": "",
         "sort": 1,
-        "tagValuesQuery": "",
-        "tags": [],
-        "tagsQuery": "",
-        "type": "query",
-        "useTags": false
-      },
-      {
-        "allValue": null,
-        "current": {},
-        "datasource": "${DS_DB}",
-        "hide": 0,
-        "includeAll": false,
-        "label": "имя БК",
-        "multi": true,
-        "name": "host",
-        "options": [],
-        "query": "SHOW TAG VALUES WITH KEY = \"host\"  WHERE server =~ /$server/",
-        "refresh": 2,
-        "regex": "",
-        "sort": 0,
-        "tagValuesQuery": "",
-        "tags": [],
-        "tagsQuery": "",
-        "type": "query",
-        "useTags": false
-      },
-      {
-        "allValue": null,
-        "current": {},
-        "datasource": "${DS_DB}",
-        "hide": 0,
-        "includeAll": true,
-        "label": "параметр",
-        "multi": true,
-        "name": "param",
-        "options": [],
-        "query": "SHOW TAG VALUES WITH KEY = \"name\"  WHERE server =~ /$server/ AND host =~ /$host/ AND hasvalue = '1'",
-        "refresh": 2,
-        "regex": "",
-        "sort": 0,
         "tagValuesQuery": "",
         "tags": [],
         "tagsQuery": "",
@@ -618,6 +501,6 @@
     ]
   },
   "timezone": "",
-  "title": "details",
-  "version": 51
+  "title": "RabbitMQ summary",
+  "version": 11
 }

@@ -44,7 +44,7 @@
   "hideControls": false,
   "id": null,
   "links": [],
-  "refresh": "30s",
+  "refresh": "5m",
   "rows": [
     {
       "collapse": false,
@@ -92,15 +92,9 @@
               "groupBy": [
                 {
                   "params": [
-                    "10m"
+                    "4m"
                   ],
                   "type": "time"
-                },
-                {
-                  "params": [
-                    "host"
-                  ],
-                  "type": "tag"
                 },
                 {
                   "params": [
@@ -145,12 +139,6 @@
                   "key": "server",
                   "operator": "=~",
                   "value": "/^$server$/"
-                },
-                {
-                  "condition": "AND",
-                  "key": "host",
-                  "operator": "=~",
-                  "value": "/^$host$/"
                 },
                 {
                   "condition": "AND",
@@ -288,12 +276,6 @@
                   "key": "server",
                   "operator": "=~",
                   "value": "/^$server$/"
-                },
-                {
-                  "condition": "AND",
-                  "key": "name",
-                  "operator": "=~",
-                  "value": "/^$host$/"
                 }
               ]
             }
@@ -498,17 +480,11 @@
                   "key": "server",
                   "operator": "=~",
                   "value": "/^$server$/"
-                },
-                {
-                  "condition": "AND",
-                  "key": "host",
-                  "operator": "=~",
-                  "value": "/^$host$/"
                 }
               ]
             }
           ],
-          "title": "Ошибки по всем задачам на $server $host",
+          "title": "Ошибки по всем задачам на $server",
           "transform": "table",
           "type": "table"
         }
@@ -551,32 +527,12 @@
         "current": {},
         "datasource": "${DS_DB}",
         "hide": 0,
-        "includeAll": false,
-        "label": "имя БК",
-        "multi": true,
-        "name": "host",
-        "options": [],
-        "query": "SHOW TAG VALUES WITH KEY = \"host\"  WHERE server =~ /$server/",
-        "refresh": 2,
-        "regex": "",
-        "sort": 0,
-        "tagValuesQuery": "",
-        "tags": [],
-        "tagsQuery": "",
-        "type": "query",
-        "useTags": false
-      },
-      {
-        "allValue": null,
-        "current": {},
-        "datasource": "${DS_DB}",
-        "hide": 0,
         "includeAll": true,
         "label": "параметр",
         "multi": true,
         "name": "param",
         "options": [],
-        "query": "SHOW TAG VALUES WITH KEY = \"name\"  WHERE server =~ /$server/ AND host =~ /$host/ AND hasvalue = '1'",
+        "query": "SHOW TAG VALUES WITH KEY = \"name\"  WHERE server =~ /$server/ AND hasvalue = '1'",
         "refresh": 2,
         "regex": "",
         "sort": 0,
@@ -618,6 +574,6 @@
     ]
   },
   "timezone": "",
-  "title": "details",
-  "version": 51
+  "title": "all",
+  "version": 20
 }

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-from .models import Servers, Options, ServerGroups, Hosts, Items,TaskSets, Triggers, ResultFormatters
+from .models import Servers, Options, ServerGroups, Hosts, Items, TaskSets, \
+    Triggers, ResultFormatters
 from .threadPollSubs import sendRegisterMessage
 
 from django.contrib import admin
@@ -20,7 +21,9 @@ class ServersAdmin(admin.ModelAdmin):
         fieldTemplate = Servers.getFieldTemplate()
 
         if obj is not None:
-            #{'mq':[['server',port,'user','password'],['server',port,'user','password']],'db':[...],'fe':[...],'be':[...]}
+            # {'mq':[['server',port,'user','password'],
+            #       ['server',port,'user','password']],
+            # 'db':[...],'fe':[...],'be':[...]}
             config = json.loads(obj.config)
         else:
             config = {}
@@ -31,10 +34,10 @@ class ServersAdmin(admin.ModelAdmin):
             # [['server',port,user,password],[['server',port,user,password]]]
             nodeValues = config.get(nodeName, [])
 
-            l = len(nodeValues)
-            for nodeIndex in range(l + 1):
+            nvLen = len(nodeValues)
+            for nodeIndex in range(nvLen + 1):
 
-                if nodeIndex < l:
+                if nodeIndex < nvLen:
                     # ['server',port,user,password]
                     nodeValue = nodeValues[nodeIndex]
                 else:
@@ -42,7 +45,8 @@ class ServersAdmin(admin.ModelAdmin):
 
                 curFields = []
                 # nodefields constructor
-                for fieldIndex, fieldKey in enumerate(fieldTemplate[nodeName].keys()):
+                for fieldIndex, fieldKey in \
+                        enumerate(fieldTemplate[nodeName].keys()):
                     # create field object with template data and initial values
                     fieldValue = (fieldTemplate[nodeName][
                                   fieldKey].fieldOptions).copy()
@@ -95,7 +99,16 @@ class ServersAdmin(admin.ModelAdmin):
                 res = config[k1][int(k2)].get(k3, '')
             return res
 
-        #{'be.0.server': 'localhost', 'mq.0.server': 'localhost', 'mq.0.user': 'guest', 'db.0.server': 'localhost', 'fe.0.server': 'localhost', 'db.0.pwd': '', 'mq.0.port': 15672, 'mq.0.pwd': 'guest', 'db.0.user': 'qos', 'db.0.port': 5432}
+        # {'be.0.server': 'localhost',
+        # 'mq.0.server': 'localhost',
+        # 'mq.0.user': 'guest',
+        # 'db.0.server': 'localhost',
+        # 'fe.0.server': 'localhost',
+        # 'db.0.pwd': '',
+        # 'mq.0.port': 15672,
+        # 'mq.0.pwd': 'guest',
+        # 'db.0.user': 'qos',
+        # 'db.0.port': 5432}
         data = form.cleaned_data
         template = Servers.getFieldTemplate()
         oldData = model.getConfigObject(decryptPwd=False)
@@ -143,7 +156,7 @@ class ServersAdmin(admin.ModelAdmin):
 @admin.register(ServerGroups)
 class ServerGroupsAdmin(admin.ModelAdmin):
     list_display = ['name', ]
-    fields = ['name', 'servers','usergroups']
+    fields = ['name', 'servers', 'usergroups']
 
 
 @admin.register(Options)
@@ -153,61 +166,65 @@ class OptionsAdmin(admin.ModelAdmin):
     fields = ['name', 'value']
 
 
-
 def hostRegister(modeladmin, request, qset):
     # queryset.update(status='p')
     hostRegister.short_description = "Зарегистрировать"
-    
+
     # non-repeating list of servers of selected hosts
-    serversSelected={obj.server for obj in qset}
+    serversSelected = {obj.server for obj in qset}
 
     try:
         for serv in serversSelected:
             # hosts for current server
-            hosts=qset.filter(server__exact=serv)
+            hosts = qset.filter(server__exact=serv)
 
-            if len(hosts)==Hosts.objects.filter(server__exact=serv).count():
+            if len(hosts) == Hosts.objects.filter(server__exact=serv).count():
                 # all hosts of current server was selected.
                 # send "register all" command
-                keyList=["agent"]
+                keyList = ["agent"]
             else:
                 # some hosts of current server was selected
                 # send register command for every host
-                keyList=["agent-" + host.key for host in hosts]
-            
-            sendRegisterMessage(serv,keyList)
-            print("sent registration messages ",serv.name, keyList)
+                keyList = ["agent-" + host.key for host in hosts]
+
+            sendRegisterMessage(serv, keyList)
+            print("sent registration messages ", serv.name, keyList)
     except Exception as e:
-        print("sent registration messages error: ",str(e))
-
-
+        print("sent registration messages error: ", str(e))
 
 
 # custom form for hosts and items
-# adds ability to select linked taskSets 
+# adds ability to select linked taskSets
 class TaskSetSelectorForm(forms.ModelForm):
-    taskSets = ModelMultipleChoiceField(label="Связанные задачи",required=False,queryset=TaskSets.objects.all())
+    taskSets = ModelMultipleChoiceField(
+        label="Связанные задачи",
+        required=False,
+        queryset=TaskSets.objects.all()
+    )
     # Overriding __init__ here allows us to provide initial
     # data for 'toppings' field
+
     def __init__(self, *args, **kwargs):
         # Only in case we build the form from an instance
         # (otherwise, 'toppings' list should be empty)
         if kwargs.get('instance'):
             # We get the 'initial' keyword argument or initialize it
-            # as a dict if it didn't exist.                
+            # as a dict if it didn't exist.
             initial = kwargs.setdefault('initial', {})
             # The widget for a ModelMultipleChoiceField expects
             # a list of primary key for the selected data.
-            initial['taskSets'] = [t.pk for t in kwargs['instance'].tasksets_set.all()]
+            initial['taskSets'] = [t.pk for t in kwargs[
+                'instance'].tasksets_set.all()]
         forms.ModelForm.__init__(self, *args, **kwargs)
 
-    # Overriding save allows us to process the value of 'toppings' field    
+    # Overriding save allows us to process the value of 'toppings' field
     def save(self, commit=True):
         # Get the unsave Pizza instance
         instance = forms.ModelForm.save(self, False)
 
         # Prepare a 'save_m2m' method for the form,
         old_save_m2m = self.save_m2m
+
         def save_m2m():
             old_save_m2m()
             # This is where we actually link the pizza with toppings
@@ -224,24 +241,28 @@ class TaskSetSelectorForm(forms.ModelForm):
 
 
 # custom form for hosts
-# adds ability to select linked taskSets 
+# adds ability to select linked taskSets
 class HostsForm(TaskSetSelectorForm):
+
     class Meta:
         model = Hosts
-        fields=('name','key','server','enabled','config','aliases','alarms','comment','taskSets',)
+        fields = ('name', 'key', 'server', 'enabled', 'config',
+                  'aliases', 'alarms', 'comment', 'taskSets',)
 
 
 # custom form for items
-# adds ability to select linked taskSets 
+# adds ability to select linked taskSets
 class ItemsForm(TaskSetSelectorForm):
+
     class Meta:
         model = Items
-        fields=('name','key','enabled','unit','config','resultformatter','alarms','comment','taskSets',)
+        fields = ('name', 'key', 'enabled', 'unit', 'config',
+                  'resultformatter', 'alarms', 'comment', 'taskSets',)
 
 
 @admin.register(Hosts)
 class HostsAdmin(admin.ModelAdmin):
-    form=HostsForm
+    form = HostsForm
     list_filter = ('server__name',)
     list_display = ['name', 'key', 'server', 'enabled', 'id', 'comment']
     # fields = ['name', 'value']
@@ -250,7 +271,7 @@ class HostsAdmin(admin.ModelAdmin):
 
 @admin.register(Items)
 class ItemsAdmin(admin.ModelAdmin):
-    form=ItemsForm
+    form = ItemsForm
     list_display = ['name', 'key', 'enabled', 'unit', 'id', 'comment']
     # fields = ['name', 'value']
 
@@ -261,11 +282,13 @@ class TaskSetsAdmin(admin.ModelAdmin):
     list_display = ['name', 'enabled', 'comment']
     # fields = ['name', 'value']
 
+
 @admin.register(Triggers)
 class TriggersAdmin(admin.ModelAdmin):
     # form=RulesForm
     list_display = ['name', 'config']
     # fields = ['name', 'value']
+
 
 @admin.register(ResultFormatters)
 class ResultFormattersAdmin(admin.ModelAdmin):
@@ -274,4 +297,4 @@ class ResultFormattersAdmin(admin.ModelAdmin):
     # list_display = ['rule', 'comment']
     # fields = ['name', 'value']
 
-# admin.site.register(ServerComponents, ServerComponentsAdmin)    
+# admin.site.register(ServerComponents, ServerComponentsAdmin)

@@ -181,7 +181,14 @@ def makeFile(pAlertTypeTemplate,pChannelNameRegex,pLevelNameRegex,pRules,pOrigin
 
 	print ("following alertTypes was created:")
 	for item in res.values():
-		item['rules']=pRules
+		# item['rules']=pRules
+		
+		# - for Velcom only
+		# velcom rule name is "R"+param count in this group
+		# each param is 1 level, so param count===level count
+		item['rules']=["R"+str(len(item['levels']))]
+
+
 		item['originatorId']=pOriginatorId
 		item['alertTypeName']="qos.RCA."+item['name']
 		print(item['alertTypeName'])
@@ -243,7 +250,7 @@ if __name__ == "__main__":
 	#channelNameRegex для Рт - 5 групп по 3 символа через точку. В каждой группе буквы,цифры,+ или _. Первая группа - начинается с буквы
 	#channelNameRegex=r"[a-zA-Z][a-zA-Z0-9_+]{2}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}\.[a-zA-Z0-9_+]{3}"
 	# для бел "что то - имя канала - что то"
-	channelNameRegex=r"^.*?- *(.*?) *-"
+	channelNameRegex=r"^.*? - (.*?) - "
 	levelNameRegex=r"^.*?(\d{3,})x\d{3,}"
 
 

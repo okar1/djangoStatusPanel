@@ -1,0 +1,251 @@
+{% extends 'base.html' %}
+{% load staticfiles %}
+{% load bootstrap3 %}
+
+{% block bootstrap3_title %}{{ headString }}{% endblock %}
+
+
+***** ниже блок для секции head. Этот текст не попадет в HTML *****
+
+{% block bootstrap3_extra_head %}
+{{ block.super }}
+
+	{% autoescape off %} {{ autoRefresh }} {% endautoescape %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script>
+	var token='{{csrf_token}}'
+	var timerDangerousTimeSec='{{timerDangerousTimeSec}}'
+	// reload page if not received server reply in 30 minutes
+	var timerPageReloadSec=1800
+
+</script>
+<script src="{% static "shared/jquery-ui.js" %}"></script>
+<script src="{% static "shared/boxFormController.js" %}"></script>
+<script src="{% static "shared/boxFormView.js" %}"></script>
+
+<!--link rel="stylesheet" href="{{STATIC_URL}}css/jquery-ui.css"-->
+<style>
+	#selectable .ui-selecting {color: #2e3a6b; font-weight:bold}
+	#selectable .ui-selected {color: #2e3a6b; font-weight:bold}
+	#selectable .ui-group {background: #c2ffe0;}
+	#selectable {list-style-type: none; margin: 0; padding: 0; width: 100%; }
+	
+	#selectable li {
+		z-index:80; 
+		cursor: pointer; 
+		/*margin: 0.2%; старые отступы*/ 
+		margin: 0.13%;
+		float: left; 
+		/*width: 16.267%; старая ширина плиточек*/
+		width: 16.407%;
+		height: 30px; 
+		font-size: 19px; 
+		overflow: hidden; 
+		text-align: center; 
+		/*border: 1px solid #c5c5c5;*/ 
+		background: #f6f6f6;
+	}
+	
+	#grouplist {
+		width: 280px; 
+		margin: 12px 10px 1px 15px;
+	}
+		
+	#recordlist {
+		width: 100%;
+		margin: 5px 1px;
+	}
+	
+	.container {
+	width: 100%; 
+	float: center;
+	margin-top: 3px;
+	}
+	
+	.legend2nothing{
+		background: #2e3a6b; 
+		float:left; 
+		width: 15px; 
+		height: 15px;	
+		display: inline-block; 
+		border: 1px outset; 
+		margin-left: 25%; 
+		margin-top: 3px; 
+		margin-right: 3px;
+	}
+	
+	.add{
+	    background: #0D6338;
+	}
+	
+	.legend2add{
+	    background: #0D6338;
+		width: 15px; 
+		height: 15px;
+	    display: inline-block;
+		border: 1px outset;
+		float:left;
+		margin-top: 3px;
+		margin-left: 5px;
+		margin-right: 3px;
+	}
+	.rem{
+    	background: #D94A4A;
+	 }
+	 
+	.legend2remove{
+	    background: #D94A4A;
+		width: 15px; 
+		height: 15px;
+	    display: inline-block;
+		border: 1px outset;
+		margin-top: 3px;
+		margin-left: 5px;
+		margin-right: 3px;
+		float:left;
+	}
+	
+	.ign{
+	    background: #4c4c4c;
+	}
+	
+	.brd {
+		margin-top: 3px; 
+		color: #ebedee;
+		width: 100%;
+		font-family: tahoma;
+	    background: #2e3a6b;
+		font-size: 90%;
+		display: flex;
+	    flex-direction: row;
+		padding-top: 0.5%;
+		height: 35px;
+		z-index: 10;
+		overflow: hidden;
+		padding-bottom: 2%;
+	}
+	
+    .meter { 
+		height: 30px; 
+		background: #F6F6F6;
+		/*box-shadow: inset 0 -1px 1px rgba(255,255,255,0.3);*/
+		z-index:81;
+	}
+	
+	.meter > span {
+		display: block;
+		z-index: 82;
+		height: 100%;
+		background-color: #00c300;
+		background-image: linear-gradient(
+		 center bottom,
+		 rgb(43,194,83) 37%,
+		 rgb(84,240,84) 69%
+		 position: fixed;);	
+		/*box-shadow: 
+		inset 0 2px 9px  rgba(255,255,255,0.3),
+		inset 0 -2px 6px rgba(0,0,0,0.4);*/
+		position: static;
+		overflow: hidden;
+	}
+	.text{
+		text-align: justify;
+		overflow: hidden;
+		text-overflow: clip;
+		display: block;
+		position: absolute;
+		z-index: 99;
+		margin: 0 1% 0 0.5%;
+		width: 14.907%;
+		height: 30px;
+		white-space: nowrap;
+	}
+	.standartNotice {
+		display: inline-block;
+		position: absolute;
+		margin-top: -6px;
+		margin-left: 300px;
+		padding: 10px 10px;
+		color: white;
+		font-family: tahoma;
+		font-size: 110%;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipse;
+	}
+	.dangerousNotice {
+		display: inline-block;
+		position: absolute;
+		margin-top: -6px;
+		margin-left: 300px;
+		padding: 10px 10px;
+		color: white;
+		font-family: tahoma;
+		font-size: 110%;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipse;
+		background-color: #D94A4A;
+		border: solid;
+	}
+	.standartNotice > span {
+	    display: inline-block;
+	    max-width: 13%;
+	    overflow: hidden;
+	}
+	
+	.dangerousNotice > span {
+	    display: inline-block;
+	    max-width: 13%;
+	    overflow: hidden;
+	}
+	</style>
+{% endblock %}>
+
+
+***** ниже блок для секции body. Этот текст не попадет в HTML *****
+
+{% block bootstrap3_content %}
+{{ block.super }}
+
+<div class="container">
+
+	<div style="background-color: #2e3a6b; width: 100%;">
+		<!--h1 align="center" style="color: #ebedee;">{{ headString }}</h1-->
+	</div>
+	
+	<div style="background-color: #2e3a6b; height: 30px; overflow: hidden; display: flex; flex-direction: row;">
+		<div style="padding: 3px 0 0 3px; position: absolute;">
+			{% autoescape off %}{{ buttonLayout }}{% endautoescape %}
+		</div>
+		<div id="timer" class="dangerousNotice" hidden="hidden"></div>
+		<!--div style="position: absolute;"-->
+			<select id="grouplist" style="margin: 5px 5px;"{% if hasGroups is not True %}hidden="hidden"{% endif %}>
+				<option>Выберите пользователя</option>
+			</select>
+		<!--/div-->
+	</div>
+
+	<div style="width: 100.26%; margin-left: -0.13%; margin-right: -0.26%; margin-top: 3px;">
+		<ol id="selectable" class="ui-selectable">
+			<!--li id="sel1">
+				<span><span class="text"></span><span>
+			</li-->
+		</ol>
+	</div>
+	
+	<div id="recordlist" style="color: #ebedee; background: #2e3a6b; margin: 3px 0 3px 0; height: auto; align: justify; overflow: auto; text-overflow: clip; padding: 0; width: 100%;"></div>
+	
+	<div class="brd">
+		<div id="summary" style="margin: 0px 0.6%"></div>
+    <!--div class="legend2nothing"></div><p> - не меняются </p>
+    <div class="legend2add"></div><p> - будут добавлены </p>
+    <div class="legend2remove"></div><p> - будут удалены </p-->
+	</div>
+
+</div>
+
+
+{% endblock %}

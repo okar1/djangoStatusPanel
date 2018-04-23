@@ -266,7 +266,7 @@ class Hosts(models.Model):
                            'Например, когда часть результатов от одного из heartbeat agent нужно вынести в отдельную плитку</br>' +
                            "При указании ключа маршрутизации local сообщения не будут отправлены в RabbitMQ, а будут обработаны локально на машине, где установлен heartbeat")
     server = models.ForeignKey(Servers, verbose_name="Сервер", blank=False, null=False, editable=True,
-                               help_text="Сервер, к которому будет относиться плитка")
+                               help_text="Сервер, к которому будет относиться плитка", on_delete=models.CASCADE)
     enabled = models.BooleanField(
         "Включен", blank=False, null=False, editable=True, default=True)
     config = models.TextField(null=False, blank=True, default="",
@@ -378,7 +378,8 @@ class Items(models.Model):
                               "someParam</br>" +
                               "!someParam2 2p")
     resultformatter = models.ForeignKey(ResultFormatters, verbose_name="Обработчик результата", blank=True, null=True,
-                                        help_text="Дополнительные действия после получения значения от источника данных. Умножение, сложение, форматирование строки итд")
+                                        help_text="Дополнительные действия после получения значения от источника данных. Умножение, сложение, форматирование строки итд",
+                                        on_delete=models.SET_NULL)
     comment = models.CharField(
         "Комментарий", max_length=255, blank=True, null=False, editable=True, default="")
 

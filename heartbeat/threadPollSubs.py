@@ -85,8 +85,9 @@ def formatErrors(errors, serverName, pollName, delayedError=False):
 
 
 # dbConfig -> (dbConnection,tasksToPoll)
-# get db connection for later use and query list of tasks from db
-def pollDb(dbConfig, serverName, vServerErrors, oldTasks, pollingPeriodSec):
+# every server can sontain multiple DB servers.
+# here we are checking connections to all DB servers and make a query with dbQueryFn to first accessible server
+def pollDb(dbConfig, serverName, vServerErrors, oldTasks, dbQueryFn, *dbQueryArgs):
     # poll database
     pollName = "Database"
     errors = set()
@@ -116,7 +117,7 @@ def pollDb(dbConfig, serverName, vServerErrors, oldTasks, pollingPeriodSec):
         # use first connection in later tasks
         dbConnection = dbConnections[0]
 
-        e, tmp = qosDb.getTasks(dbConnection, pollingPeriodSec)
+        e, tmp = dbQueryFn(dbConnection, *dbQueryArgs)
         if e is None:
             tasksToPoll = tmp
         else:
@@ -130,7 +131,7 @@ def pollDb(dbConfig, serverName, vServerErrors, oldTasks, pollingPeriodSec):
     # heartbeat tasks are excluded, because they are loaded from local db, not
     # qos db.
     if tasksToPoll is None:
-        if dbConfigured:
+        if dbConfigured and oldTasks is not None:
             tasksToPoll = {k: v for k, v in oldTasks.items(
             ) if v.get("module", "") != 'heartbeat'}
         else:
@@ -570,14 +571,6 @@ def makePollResult(tasksToPoll, serverName, serverErrors, delayedServerErrors):
             if 'module' in task:
                 taskData.update({"tags": [task['module']]})
 
-            # processing errors for tasks without timestamp and tasks with
-            # old timestamp
-            # taskStyle = task.get('style', None)
-            # if taskStyle is not None:
-            #     taskData.update({"style": taskStyle})
-            #     if taskStyle == 'rem':
-            #         agentHasErrors.add(boxName)
-
             curTasks += [taskData]
 
     # remove from delayedservererrors items that not in serverErrors
@@ -646,10 +639,14 @@ def makePollResult(tasksToPoll, serverName, serverErrors, delayedServerErrors):
                       for key, taskData in agents.items()
                       if key not in agentHasErrors]
     pollResult += resultNoErrors
+    
+    return pollResult
 
+
+def pollResultCalcErrorPercent(vPollResult):
     # calc errors percent in pollresult ("no error" tasks/"error" tasks
     # condition in percent)
-    for poll in pollResult:
+    for poll in vPollResult:
         if "error" in poll:
             # count of not-disabled tasks
             count = sum([record.get("style", None) != "ign"
@@ -681,7 +678,6 @@ def makePollResult(tasksToPoll, serverName, serverErrors, delayedServerErrors):
             if countNoDisabledNoHb == 0:
                 poll['enabled'] = False
 
-    return pollResult
 
 
 def pollResultSort(vPollResult):

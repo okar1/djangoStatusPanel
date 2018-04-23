@@ -6,7 +6,7 @@ import sys
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-SECRET_KEY = 'x39lye%@e_1zt@1rpk#96s$#zte%u)&9617akjo+xlehxw_12a'
+SECRET_KEY = :))))
 
 
 # Include BOOTSTRAP3_FOLDER in path
@@ -14,13 +14,11 @@ BOOTSTRAP3_FOLDER = os.path.abspath(os.path.join(BASE_DIR, '..', 'bootstrap3'))
 if BOOTSTRAP3_FOLDER not in sys.path:
     sys.path.insert(0, BOOTSTRAP3_FOLDER)
 
-DEBUG = True
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEBUG = False
 
 ADMINS = ()
 
-LOGIN_URL = '/login'
+LOGIN_URL = '/heartbeat/login'
 
 DATABASES = {
 #'default': {
@@ -29,9 +27,9 @@ DATABASES = {
 #},
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'qsettings',
-        'USER': 'qos',
-        'PASSWORD': 'Tecom1',
+        'NAME': 'heartbeat',
+        'USER': 'heartbeat',
+        'PASSWORD': :))))))),
         'HOST': 'localhost',
         'PORT': '5432',
     },
@@ -83,11 +81,11 @@ USE_TZ = True
 # Don't put anything in this directory yourself; store your static files
 # in apps' "static/" subdirectories and in STATICFILES_DIRS.
 # Example: "/var/www/example.com/static/"
-STATIC_ROOT = 'd:/pyTest/qsettings/static/'
+STATIC_ROOT = '/opt/tecom/qsettings/static/'
 
 # URL prefix for static files.
 # Example: "http://example.com/static/", "http://static.example.com/"
-STATIC_URL = '/static/'
+STATIC_URL = '/heartbeat/static/'
 
 # Additional locations of static files
 STATICFILES_DIRS = (
@@ -104,15 +102,16 @@ STATICFILES_FINDERS = (
     # 'django.contrib.staticfiles.finders.DefaultStorageFinder',
 )
 
-MIDDLEWARE = [
-    #'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
+MIDDLEWARE = (
+    # 'django.middleware.SqlPrintingMiddleware.SqlPrintingMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-]
+
+)
 
 ROOT_URLCONF = 'qsettings.urls'
 

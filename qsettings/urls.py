@@ -7,12 +7,14 @@ from django.contrib import admin
 
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.generic import RedirectView
+
 
 # import cvUpdate.views,cvUpdate.config
 # import rcaUpdate.views, rcaUpdate.config
 # import vbUpdate.views, vbUpdate.config
 # import gpolicyUpdate.views, gpolicyUpdate.config
-import heartbeat.views, heartbeat.config
+import heartbeat.heartbeatView, heartbeat.policyCheckView, heartbeat.config
 # import shared.tests, shared.config
 
 #use verbose app names as main menu headers
@@ -20,7 +22,8 @@ mainMenu=[
 		 # {"url":r'^cvUpdate/$',"view":cvUpdate.views.MainView,"name":cvUpdate.config.App.verbose_name},
 		 # {"url":r'^rcaUpdate/$',"view":rcaUpdate.views.DialogFormView,"name":rcaUpdate.config.App.verbose_name},
 		 # {"url":r'^vbUpdate/$',"view":vbUpdate.views.MainView,"name":vbUpdate.config.App.verbose_name},
-		 {"url":r'^$',"view":heartbeat.views.MainView,"name":heartbeat.config.App.verbose_name},
+		 {"url":r'^$',"view":heartbeat.heartbeatView.HeartbeatView,"name":heartbeat.config.App.verbose_name},
+		 {"url":r'^policycheck$',"view":heartbeat.policyCheckView.PolicyCheckView,"name":heartbeat.config.App.policycheck_name},
 		 # {"url":r'^gpolicyUpdate/$',"view":gpolicyUpdate.views.MainView,"name":gpolicyUpdate.config.App.verbose_name},
 
 		 # {"url":r'^test/$',"view":shared.tests.TestBoxView,"name":"тестовый"},
@@ -41,7 +44,8 @@ urlpatterns.extend ([
 	#success_url=reverse('success-url')
 	url('^', include('django.contrib.auth.urls')),
 	url(r'^admin/', admin.site.urls),
-	url(r'^$', MainMenuView.as_view(), name='mainForm'),
+	# url(r'^$', MainMenuView.as_view(), name='mainForm'),
+	# url(r'^$', RedirectView.as_view(url='main', permanent=False))
 	])
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

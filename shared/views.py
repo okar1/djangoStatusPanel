@@ -81,7 +81,7 @@ class BoxFormView(LoginRequiredMixin,MainMenuView):
 		return context
 
 	def get(self, request, *args, **kwargs):
-		if request.user.is_authenticated():
+		if request.user.is_authenticated:
 			return super().get(self, request, *args, **kwargs)
 		else:
 			return (HttpResponse("Пользователь не авторизован "))
@@ -89,7 +89,7 @@ class BoxFormView(LoginRequiredMixin,MainMenuView):
 
 
 	def post(self, request, *args, **kwargs):
-		if not request.user.is_authenticated():
+		if not request.user.is_authenticated:
 			return HttpResponseNotAllowed("")
 
 		if request.is_ajax():

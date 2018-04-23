@@ -12,7 +12,28 @@
     {% if 'javascript_in_head'|bootstrap_setting %}{% bootstrap_javascript jquery=True %}{% endif %}
     {% block bootstrap3_extra_head %}
 	
-	<!-- mainMenu CSS here -->
+	<script>
+		var token='{{csrf_token}}'
+		var timerDangerousTimeSec='{{timerDangerousTimeSec}}'
+		// reload page if not received server reply in 30 minutes
+		var timerPageReloadSec=1800
+	</script>
+	<script>
+		$(document).ready(function() { 
+		$('.menu__icon').click( function(event){ 
+			event.preventDefault(); 
+			$('.overlay').fadeIn(0,
+				function(){
+					$('.menu').addClass('menu_state_open');
+			});
+		});
+		$('.overlay').click(function(){
+						$('.menu').removeClass('menu_state_open');
+						$('.overlay').css('display','none');
+					});
+			});
+	</script>
+	
 	<style>
 	#navbar {
 	 text-decoration: underline;
@@ -21,13 +42,15 @@
 	 text-align: center;
 	 overflow: hidden;
 	 }
+	 
     #navbar li { 
 	 display: inline;
-	 font-size: 15px;
+	 font-size: 19px;
 	 overflow: hidden;
 	 text-align: center;
 	 font-family: Arial Unicode MS;
 	 }
+	 
 	#navbar li a {
 	 padding-left: 1%;
 	 padding-right: 1%;
@@ -36,37 +59,381 @@
 	 text-decoration: none;
 	 width: 20%;
 	 }
+	 
 	#navbar li a:hover {
 	 background-color: #4373a7;
 	 box-shadow:  inset 1px 1px 1px rgba(0,0,0,1);
 	 padding-top: 0.18%;
 	 padding-bottom: 0.3%;
 	 }
-	 .selected{
+	 
+	.selected{
 	 background-color: #4373a7; 
 	 box-shadow:  inset 1px 1px 1px rgba(0,0,0,1);
 	 padding-top: 0.18%;
 	 padding-bottom: 0.3%;
 	 }
+	 
+	.container {
+	width: 100%; 
+	float: center;
+	margin-top: 3px;
+	overflow: hidden;
+	text-overflow: clip;
+	}
+	
+	#selectable .ui-selecting {color: #2e3a6b; font-weight:bold}
+	#selectable .ui-selected {color: #2e3a6b; font-weight:bold}
+	#selectable .ui-group {background: #c2ffe0;}
+	#selectable {list-style-type: none; margin: 0; padding: 0; width: 100%; }
+	
+	#selectable li {
+		z-index:80; 
+		cursor: pointer; 
+		margin: 0.13%;
+		float: left; 
+		width: 16.407%;
+		height: 27px; 
+		font-size: 19px; 
+		overflow: hidden; 
+		text-align: center; 
+		/*border: 1px solid #c5c5c5;*/ 
+		background: #f6f6f6;
+	}
+	
+	#grouplist {
+		width: 280px; 
+		margin: 12px 10px 1px 15px;
+	}
+		
+	#recordlist {
+		width: 100%;
+		margin: 5px 1px;
+	}
+		
+	.legend2nothing{
+		background: #2e3a6b; 
+		float: left; 
+		width: 15px; 
+		height: 15px;	
+		display: inline-block; 
+		border: 1px outset; 
+		margin-left: 25%; 
+		margin-top: 3px; 
+		margin-right: 3px;
+	}
+	
+	.add{
+	    background: #0D6338;
+	}
+	
+	.legend2add{
+	    background: #0D6338;
+		width: 15px; 
+		height: 15px;
+	    display: inline-block;
+		border: 1px outset;
+		float: left;
+		margin-top: 3px;
+		margin-left: 5px;
+		margin-right: 3px;
+	}
+	
+	.rem{
+    	background: #D94A4A;
+	 }
+	 
+	.legend2remove{
+	    background: #D94A4A;
+		width: 15px; 
+		height: 15px;
+	    display: inline-block;
+		border: 1px outset;
+		margin-top: 3px;
+		margin-left: 5px;
+		margin-right: 3px;
+		float: left;
+	}
+	
+	.ign{
+	    background: #4c4c4c;
+	}
+	
+	.brd {
+		margin-top: 3px; 
+		color: #ebedee;
+		width: 100%;
+		font-family: Arial;
+	    background: #{{ pageColor|default:"2e3a6b" }};
+		font-size: 90%;
+		display: flex;
+	    flex-direction: row;
+		padding-top: 0.5%;
+		height: 35px;
+		z-index: 10;
+		overflow: hidden;
+		padding-bottom: 2%;
+	}
+	
+    .meter { 
+		height: 30px; 
+		background: #F6F6F6;
+		/*box-shadow: inset 0 -1px 1px rgba(255,255,255,0.3);*/
+		z-index:81;
+	}
+	
+	.meter > span {
+		display: block;
+		z-index: 82;
+		height: 100%;
+		background-color: #00c300;
+		background-image: linear-gradient(
+		 center bottom,
+		 rgb(43,194,83) 37%,
+		 rgb(84,240,84) 69%
+		 position: fixed;);	
+		/*box-shadow: 
+		inset 0 2px 9px  rgba(255,255,255,0.3),
+		inset 0 -2px 6px rgba(0,0,0,0.4);*/
+		position: static;
+		overflow: hidden;
+	}
+	
+	.text{
+		text-align: justify;
+		overflow: hidden;
+		text-overflow: clip;
+		display: block;
+		position: absolute;
+		z-index: 89;
+		margin: 0 1% 0 0.5%;
+		width: 14.907%;
+		height: 30px;
+		white-space: nowrap;
+	}
+	
+	.standartNotice {
+		display: inline-block;
+		position: absolute;
+		line-height: 30px;
+		margin-left: 255px;
+		color: #ebedee;
+		padding: 0 7px;
+		font-family: Arial;
+		font-size: 100%;
+		white-space: nowrap;
+		width: 170px;
+		overflow: hidden;
+		outline: none;
+		text-overflow: clip;
+	}
+	
+	.dangerousNotice {
+		display: inline-block;
+		position: absolute;
+		line-height: 30px;
+		padding: 0 7px;
+		margin-left: 255px;
+		color: #ebedee;
+		font-family: Arial;
+		font-size: 100%;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: clip;
+		background-color: #D94A4A;
+		border: hidden;
+		width: 180px;
+	}
+	
+	.standartNotice > span {
+		position: absolute;
+	    display: inline-block;
+	    overflow: hidden;
+		outline: none;
+		text-overflow: clip;
+	}
+	
+	.dangerousNotice > span {
+	    position: absolute;
+	    display: inline-block;
+	    overflow: hidden;
+		outline: none;
+		text-overflow: clip;
+
+	}
+	
+	.btn {
+	 text-decoration: none;
+	 /*position: absolute;*/
+	 outline: none;
+	 display: inline-block;
+	 padding: 2px 5px;
+	 margin: 1px 10px;
+	 color: white;
+	 border: 1px solid rgba(255,255,255,0.4);
+	 background: none;
+	 font-weight: 300;
+	 font-family: Arial;
+	 text-transform: uppercase;
+	 letter-spacing: 2px;
+	} 
+
+	.btn:hover { background: rgba(255,255,255,0.5); text-color: white; }
+	
+<!--раскрывающееся меню-->
+	.menu {
+		text-align: right;
+	}
+
+	.menu__icon {
+		display: block;
+		width: 25px;
+		height: 30px;
+		position: absolute;
+		cursor: pointer;
+	}
+
+	.menu__icon span {
+	  display: block;
+	  position: absolute;
+	  height: 3px;
+	  width: 100%;
+	  background: #ebedee;
+	  border-radius: 9px;
+	  opacity: 1;
+	  left: 7px;
+	  transform: rotate(0deg);
+	  transition: .25s ease-in-out;
+	}
+
+	.menu__icon span:nth-child(1) {
+	  top: 7px;
+	}
+	.menu__icon span:nth-child(2), .menu__icon span:nth-child(3) {
+	  top: 14px;
+	}
+	.menu__icon span:nth-child(4) {
+	  top: 21px;
+	 }
+
+	.menu__links-item {
+		display: inline-block;
+		font-family: Arial;
+		font-size: 17px;
+		line-height: 28px;
+		text-decoration: none;
+		margin: 0.13%;
+		color: #ebedee;
+		width: auto;
+		min-width: 250px;
+		z-index: 100;
+	}
+
+	.menu__links-item:hover {
+		text-decoration: none;
+		font-weight: bold;
+		color: #ebedee;
+	}
+
+	.menu.menu_state_open .menu__icon span:nth-child(1) {
+	  top: 18px;
+	  width: 0%;
+	  left: 50%;
+	}
+	.menu.menu_state_open .menu__icon span:nth-child(2) {
+	  transform: rotate(45deg);
+	}
+	.menu.menu_state_open  .menu__icon span:nth-child(3) {
+	  transform: rotate(-45deg);
+	}
+	.menu.menu_state_open  .menu__icon span:nth-child(4) {
+	  top: 18px;
+	  width: 0%;
+	  left: 50%;
+	}
+
+	.menu.menu_state_open .menu__links {
+	  display: block;  
+	}
+
+	@media screen and (max-width: 99999px) {
+	  .menu__icon{
+		display: block;
+	  }
+		.menu__links {
+			position: absolute;
+			display: none;
+			margin-top: 33px;
+			margin-left: 0;
+			background-color: rgba(0, 0, 0, 0.8);
+			z-index: 100;
+			overflow: hidden;
+			color: #ebedee;
+		  }
+		.menu__links-item {
+			display: block;
+			padding: 4px 9px;
+			text-align: left;
+			color: #ebedee;
+			white-space: nowrap;
+			z-index: 100;
+		}
+	}	
+	.overlay {
+		z-index: 99;
+		position:fixed;
+		width:100%; 
+		height:100%; 
+		top:0;
+		left:0;
+		display:none; 
+		}
 	</style>
 	<!-- mainMenu CSS here  END -->
 	{% endblock %}
 </head>
 
 {% block bootstrap3_content %}
-<!-- mainMenu HTML here -->
+
 <body style="background-color: black;">
 
-<div class="container" style="width: 100%; align: center;">
-	<div style="background-color: #2e3a6b ; width: 100%; height: 1.5%; margin: 5px 0 6px 0;">
-		<ul id="navbar">
-			{% for item in mainMenu %}
-			<li><a href="{% url item.class %}"{% if item.class == thisClass %} class="selected"{% endif %}>{{ item.name }}</a></li>
-			{% endfor %}
-		</ul>
+	<div class="container">
+		<div style="background-color: #{{ pageColor|default:"2e3a6b" }}; height: 30px; display: flex; flex-direction: row; width: 100%;">
+		<div style="background-color: #{{ pageColor|default:"2e3a6b" }}; width: 100%;">
+		<!-- mainMenu HTML here-->
+		<div class="menu">
+			<div class="menu__icon">
+			  <span></span>
+			  <span></span>
+			  <span></span>
+			  <span></span>
+			</div>
+			<div class="overlay"></div>
+			<div class="menu__links">
+				{% for item in mainMenu %}
+				<a class="menu__links-item" href="{% url item.class %}">{{ item.name }}</a>
+				{% endfor %}
+				<!--
+					example for selected menu block:
+					{% if item.class == thisClass %} class="selected"{% endif %} 
+				-->
+			</div>
+		</div>
+		
+			<!--h1  style="color: #ebedee;">{{ headString }}</h1-->
+		</div>
+		<div id="timer" class="standartNotice" hidden="hidden"></div>
+		<div style="position: absolute; margin: 0 35px;">
+			<select id="grouplist" style="margin: 5px 5px; width: 210px; "{% if hasGroups is not True %}hidden="hidden"{% endif %}>
+				<option style=" text-overflow: ellipsis;">Выберите пользователя</option>
+			</select>
+		</div>
+		<div style="padding: 2px 5px 0 0; margin-right: 0.001%; margin-left: auto; display: inline-block; display: flex; flex-direction: row;"> 
+
+			{% autoescape off %}{{ buttonLayout }}{% endautoescape %}
+		</div>
 	</div>
-</div>
-<!-- mainMenu HTML here END-->
+	
 {% endblock %}
 {% if not 'javascript_in_head'|bootstrap_setting %}{% bootstrap_javascript jquery=True %}{% endif %}
 {% block bootstrap3_extra_script %}{% endblock %}

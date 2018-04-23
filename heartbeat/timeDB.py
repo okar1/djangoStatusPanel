@@ -89,8 +89,10 @@ def commitPollResult(timeDbConfig, pollResult, errors):
                 data = data.replace(s, '\\' + s)
         elif t == int or t == float:
             pass
-        elif t == bool or isinstance(t, type(None)):
+        elif t == bool:
             data = None
+        elif data is None:
+            pass
         else:
             raise Exception("тип данных "+str(t) +
                             " не поддерживается")

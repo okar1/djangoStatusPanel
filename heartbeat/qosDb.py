@@ -3,6 +3,7 @@ import psycopg2
 import re
 import json
 import os
+import random
 
 service_type = 0
 broadcasting_type = 1
@@ -455,3 +456,110 @@ def getScheduledTaskKeys(dbConnection, timeStamp, zapas):
     # endfor row
 
     return res
+
+
+# return tuple with error strings and all active task like
+# (error,{taskKey: {"agentKey":"aaa", "period":10}} )
+def getPolicyStatus(dbConnection):
+
+    # demo data generator
+    # for agent in range(5):
+    #     res.update({
+    #             str(i)+str(agent): {
+    #                 "agentKey": "agentKey"+str(agent),
+    #                 "agentName": "agentName"+str(agent),
+    #                 "module": "policyCheck",
+    #                 "itemName": "itemName"+str(i),
+    #                 "enabled": False,
+    #                 # "style":random.choice(["add","rem","ign"])
+    #                 "style":"ign"
+    #             }
+    #             for i in range(10)
+    #         })
+
+    sql="""
+    SELECT
+        agents.agent_name AS "Ключ БК", 
+        agents.displayname AS "Имя БК", 
+        --mgrouppolicy.taskidentifier_modulename AS "Модуль",
+        mgrouppolicy.name AS "Имя ГП",
+        mgrouppolicy.taskidentifier_taskname AS "Задача", 
+        mgrouppolicy.parameteridentifier_displayname AS "Параметр",
+        mgrouppolicy.id  IN 
+        (
+            SELECT mgrouppolicy.id
+            FROM mgrouppolicy, magenttask 
+            WHERE mgrouppolicy.taskidentifier_taskname = magenttask.displayname
+            AND
+            mgrouppolicy.state = 'ACTIVE'
+            AND
+            (not magenttask.deleted) 
+            AND 
+            (not magenttask.disabled)
+        ) as "taskfound"
+
+
+    FROM mgrouppolicy LEFT OUTER JOIN 
+    (select mgrouppolicy_agent_list.*, magent0.displayname
+        FROM mgrouppolicy_agent_list
+        LEFT OUTER JOIN (
+            SELECT * from magent where not deleted) as magent0
+        ON mgrouppolicy_agent_list.agent_name=magent0.entity_key
+     ) as agents
+    ON mgrouppolicy.id = agents.id
+    WHERE mgrouppolicy.state = 'ACTIVE'
+
+    --ORDER BY
+    --taskfound
+    --    mgrouppolicy_agent_list.agent_name, 
+    --    mgrouppolicy.taskidentifier_modulename,
+    --    mgrouppolicy.name,
+    --    mgrouppolicy.taskidentifier_taskname, 
+    --    mgrouppolicy.parameteridentifier_displayname
+    """
+    
+    error = None
+    res={}
+    try:
+        cur = dbConnection.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+
+    except Exception as e:
+        return(str(e), None)
+
+    for i, row in enumerate(rows):
+        agentKey, agentName, policyName, taskName, paramName, taskFound=row
+        
+        errMsg=None
+
+        # skip "legacy ling policy" internal object
+        if agentKey is None:
+            continue
+
+        if agentName is None:
+            errMsg="БК не найден: "
+            agentName=agentKey
+
+        if not taskFound:
+            errMsg="Задача не найдена: "
+
+        text=agentKey+", "+policyName+", "+taskName
+        if errMsg is not None:
+            text=errMsg + text
+
+        v={
+            "agentKey": agentKey,
+            "agentName": agentName,
+            "module": "policyCheck",
+            "itemName": text,
+            "enabled": True
+        }
+
+        if errMsg is not None:
+            v['style']="rem"
+
+        res.update({str(i):v})
+
+
+    return (error, res)

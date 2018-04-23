@@ -6,6 +6,7 @@ import platform
 from .models import Servers, Options, TaskSets, Hosts
 from . import threadPollSubs as subs
 from .threadMqQosResultConsumers import MqQosResultConsumers
+from . import qosDb
 
 isTestEnv = False
 
@@ -67,6 +68,7 @@ def threadPoll():
                 server.name,
                 serverErrors,
                 oldTasks,
+                qosDb.getTasks,
                 opt['pollingPeriodSec']
             )
 
@@ -195,6 +197,10 @@ def threadPoll():
                 serverErrors,
                 delayedServerErrors.setdefault(server.name, set())
             )
+
+            # calc error percent for boxes
+            # percent is calculated for tasks with "style":"rem" to all tasks
+            subs.pollResultCalcErrorPercent(serverPollResult)
 
             # commit poll results of current server to timeDB (now it is
             # influxDB)

@@ -3,27 +3,24 @@ from shared.views import BoxForm, BoxFormView
 from .threadPoll import threadPoll
 from .models import Servers, ServerGroups, Options
 import time
-from datetime import datetime
 
 
-class MainViewForm(BoxForm):
+class HeartbeatBaseViewForm(BoxForm):
     pass
-    headString = "heartbeat"
-    # annotationString="Выберите пользователя из списка,
-    # затем щелкните по виджету для отображения списка задач"
+    headString = "redefine me"
 
+# *** Abstract class ***
+# generates view with heartbeat boxes, serverGroup selector and autoUpdate timer
+# not generates tasks for every selected box.
+# updateTasks(self) must be redefined in child class
 
-# group format [{"id":1,"name":groupName1},{"id":2,"name":groupName2}]
-# boxesForGroup format [{"id":boxId,"name":boxName,"error":someErrorText}]
-# (if "error" is not present - box is green else red with message)
-# recordsForBox format [{"id":recId,"name":recName,"style":"add/rem"}]
-# style is optional. Use default style if key is not present
-class MainView(BoxFormView):
-    form_class = MainViewForm
+class HeartbeatBaseView(BoxFormView):
+    form_class = HeartbeatBaseViewForm
     buttons = []
     # static
     tasks = {}
     timeStamp = 0
+    pollResult=None
 
     # returns serverGroup list to gui
     def getGroups(self):
@@ -108,9 +105,12 @@ class MainView(BoxFormView):
         )
 
         serverCount = len(serverList)
+        if self.__class__.pollResult is None:
+            self.__class__.pollResult=self.getPollResult()
+
         res = [
             filterBoxFields(v, serverCount != 1)
-            for v in threadPoll.pollResult
+            for v in self.__class__.pollResult
             if v['pollServer'] in serverList]
 
         self.progressArray = res
@@ -127,138 +127,46 @@ class MainView(BoxFormView):
                 not self.__class__.tasks:
             # print ('update tasks view data')
             self.__class__.timeStamp = threadPoll.pollTimeStamp
+            self.__class__.pollResult=self.getPollResult()
             self.updateTasks()
         # print(boxID)
         return self.__class__.tasks.get(boxID, [])
 
+
+    # rule for sorting tasks in view
+    @staticmethod
+    def sortTasks(t):
+        taskStyle = t.get('style', None)
+        if taskStyle == 'rem':
+            res = '0'
+        elif taskStyle == "ign":
+            res = '2'
+        else:
+            res = '1'
+        return res + t['name']
+
+    def getPollResult(self):
+        raise Exception("pollResult generator must be redefined in child classes")
+
+    @staticmethod
+    def getNameForTask(task):
+        # can be redefined in child to generate custom tasks name
+        return task['itemName']
+
     # tasks like {boxid:{[task data]}}
     def updateTasks(self):
-        def secondsCountToHumanString(sec):
-            weekSec = 604800
-            daySec = 86400
-            hourSec = 3600
-            minSec = 60
-            if sec // weekSec > 0:
-                cnt = sec // weekSec
-                if cnt % 10 == 1:
-                    unit = "неделю"
-                elif cnt % 10 <= 4:
-                    unit = "недели"
-                else:
-                    unit = "недель"
-
-            elif sec // daySec > 0:
-                cnt = sec // daySec
-                if cnt % 10 == 1:
-                    unit = "день"
-                elif cnt % 10 <= 4:
-                    unit = "дня"
-                else:
-                    unit = "дней"
-
-            elif sec // hourSec > 0:
-                cnt = sec // hourSec
-                unit = "ч"
-
-            elif sec // minSec > 0:
-                cnt = sec // minSec
-                unit = "мин"
-
-            else:
-                cnt = sec
-                unit = "сек"
-            return str(cnt) + " " + unit
-        # end sub
-
-        # converts value before displaying it into view
-        def formatValue(v):
-
-            # display string values in quotes
-            if type(v) == str:
-                return "\"" + v + "\""
-
-            # display floating numbers without decimal place as integer (ex
-            # "23" instead "23.0")
-            if type(v) == float and v == int(v):
-                v = int(v)
-
-            # predefined strings for boolean values
-            if type(v) == bool:
-                if v:
-                    v = "ДА"
-                else:
-                    v = "НЕТ"
-            return str(v)
-        # end sub
-
-        # rule for sorting tasks in view
-        def sortTasks(t):
-            taskStyle = t.get('style', None)
-            if taskStyle == 'rem':
-                res = '0'
-            elif taskStyle == "ign":
-                res = '2'
-            else:
-                res = '1'
-            return res + t['name']
-
-        def getNameForTask(task):
-            taskKey = task['id']
-
-            if task.get('servertask', False):
-                name = taskKey + " : "
-            else:
-                name = "{0} ({1}".format(taskKey, task['itemName'])
-
-                alarms = task.get('alarms', {})
-                # if 'pattern' not in keys - apply to all (like pattern .*)
-                alarmsCount = sum([True
-                                   for alarmData in alarms.values()
-                                   if ('pattern' not in alarmData.keys()) or
-                                   alarmData['pattern'].search(taskKey)
-                                   ])
-                if alarmsCount > 0:
-                    name += " +" + str(alarmsCount) + " alarm"
-
-                name += ")"
-
-            if (not task['enabled']) and ('error' not in task):
-                name += " : Задача не контролируется "
-
-            if 'timeStamp' in task.keys() and task.get('style', None) != 'ign':
-                idleTime = datetime.utcnow() - task['timeStamp']
-                idleTime = idleTime.days * 86400 + idleTime.seconds
-                name += " : {0} назад".format(
-                            secondsCountToHumanString(idleTime))
-
-            if 'value' in task.keys():  # and (task.get('error',None) is None):
-                # not display a value in case of error
-                name += (" получено значение " + formatValue(task['value']))
-
-                unit = task.get('unit', '')
-                if unit != '':
-                    name += (" " + unit)
-            # end if
-
-            error = task.get('error', None)
-            if (error is not None):
-                name += (" : Ошибка: " + error)
-
-            return name
-        # end sub
-
         tasks = {}
-        for box in threadPoll.pollResult:
+        for box in self.__class__.pollResult:
             boxTasks = []
             for task in box['data']:
                 viewTask = task.copy()
                 # alarms.pattern and timestamp are used here
-                viewTask['name'] = getNameForTask(task)
+                viewTask['name'] = self.getNameForTask(task)
                 # now remove them because of non-need and non-serializable
                 viewTask.pop('timeStamp', None)
                 viewTask.pop('alarms', None)
                 boxTasks += [viewTask]
-            boxTasks.sort(key=sortTasks)
+            boxTasks.sort(key=self.sortTasks)
             tasks[box['id']] = boxTasks
         self.__class__.tasks = tasks
     # end sub

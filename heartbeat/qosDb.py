@@ -3,7 +3,6 @@ import psycopg2
 import re
 import json
 import os
-import random
 
 service_type = 0
 broadcasting_type = 1
@@ -500,14 +499,15 @@ def getPolicyStatus(dbConnection):
 
 
     FROM mgrouppolicy LEFT OUTER JOIN 
-    (select mgrouppolicy_agent_list.*, magent0.displayname
+    (select mgrouppolicy_agent_list.*, magent0.displayname, magent0.deleted as "agentdeleted"
         FROM mgrouppolicy_agent_list
         LEFT OUTER JOIN (
-            SELECT * from magent where not deleted) as magent0
+            SELECT * from magent) as magent0
         ON mgrouppolicy_agent_list.agent_name=magent0.entity_key
      ) as agents
     ON mgrouppolicy.id = agents.id
     WHERE mgrouppolicy.state = 'ACTIVE'
+    and not agentdeleted
 
     --ORDER BY
     --taskfound

@@ -105,8 +105,7 @@ class HeartbeatBaseView(BoxFormView):
         )
 
         serverCount = len(serverList)
-        if self.__class__.pollResult is None:
-            self.__class__.pollResult=self.getPollResult()
+        self._updatePollAndTasks()
 
         res = [
             filterBoxFields(v, serverCount != 1)
@@ -116,6 +115,17 @@ class HeartbeatBaseView(BoxFormView):
         self.progressArray = res
         return res
 
+
+    def _updatePollAndTasks(self):
+        if self.__class__.pollResult is None or \
+                self.__class__.timeStamp < threadPoll.pollTimeStamp or \
+                not self.__class__.tasks:
+            # print ('update tasks view data')
+            self.__class__.timeStamp = threadPoll.pollTimeStamp
+            self.__class__.pollResult=self.getPollResult()
+            self.updateTasks()
+
+
     def getRecordsForBox(self, boxID):
         # WARNING
         # for speed reasons here we not provide a security check
@@ -123,12 +133,7 @@ class HeartbeatBaseView(BoxFormView):
         #    current user has permission
         # so if any registered user knows exactly boxid like "xdemo3.Probe HLS
         # 3" - he can request records for this box
-        if self.__class__.timeStamp < threadPoll.pollTimeStamp or \
-                not self.__class__.tasks:
-            # print ('update tasks view data')
-            self.__class__.timeStamp = threadPoll.pollTimeStamp
-            self.__class__.pollResult=self.getPollResult()
-            self.updateTasks()
+        self._updatePollAndTasks()
         # print(boxID)
         return self.__class__.tasks.get(boxID, [])
 

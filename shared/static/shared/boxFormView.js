@@ -1,4 +1,7 @@
 var contr=new boxFormController(updateGroupListCallback,updateBoxRecListCallback,getSelectedGroup,storeProgressTimeStamp);
+var updateResizeableHeight=true
+var autoMinimizeBoxes=true
+var resizeableMinimizedHeight=undefined
 
 // on page load
 $( function() {
@@ -18,9 +21,45 @@ $( function() {
 	$( "#selectable" ).selectable({stop: updateBoxRecList});
 	$('#grouplist').on('change', updateBoxRecList)
 	$( "button[id^='button']" ).on("click", btClick );
+	$("a.btnMinimize").on("click", btClickMinimize )
+	$("a.btnMaximize").on("click", btClickMaximize )
 	contr.ask("group",0)
 
 });
+
+(function() {jQuery.fn['bounds'] = function () {
+	var bounds = {  
+		left: Number.POSITIVE_INFINITY, 
+		top: Number.POSITIVE_INFINITY,
+		right: Number.NEGATIVE_INFINITY, 
+		bottom: Number.NEGATIVE_INFINITY,
+		width: Number.NaN,
+		height: Number.NaN
+	};
+	
+	this.each(function (i,el) {
+		var elQ = $(el);
+		var off = elQ.offset();
+		off.right = off.left + $(elQ).width();
+		off.bottom = off.top + $(elQ).height();
+		
+		if (off.left < bounds.left)
+		bounds.left = off.left;
+		
+		if (off.top < bounds.top)
+		bounds.top = off.top;
+		
+		if (off.right > bounds.right)
+		bounds.right = off.right;
+		
+		if (off.bottom > bounds.bottom)
+		bounds.bottom = off.bottom;
+	});
+	
+	bounds.width = bounds.right - bounds.left;
+	bounds.height = bounds.bottom - bounds.top;
+	return bounds;
+}})();
 
 function isNumber(n) {
   return !isNaN(parseFloat(n)) && isFinite(n);
@@ -103,6 +142,31 @@ function btClick(){
 	
 }
 
+function btClickMinimize(event){
+	event.preventDefault();
+	if (resizeableMinimizedHeight!=undefined){
+		$("#resizable" ).css('height',resizeableMinimizedHeight);	
+	}
+	else{
+		$("#resizable" ).css('height','auto');	
+	}
+	$("a.btnMinimize").css('width','0');
+	$("a.btnMinimize").css('visibility','hidden');
+	$("a.btnMaximize").css('visibility','visible');
+	$("a.btnMaximize").css('width','100%');
+}
+
+
+function btClickMaximize(event){
+	event.preventDefault(); 
+	$("#resizable" ).css('height','auto');
+	$("a.btnMaximize").css('width','0');
+	$("a.btnMaximize").css('visibility','hidden');
+	$("a.btnMinimize").css('visibility','visible');
+	$("a.btnMinimize").css('width','100%');
+}
+
+
 //boxes [{"id": , "name":}]
 //boxesStatus [{"id": , "progress": , "error": ,"enabled":false}]
 // enabled is true by default
@@ -166,6 +230,11 @@ function updateBoxRecListCallback(boxes, boxesStatus, boxRec,updateNoInteractive
 	}
 
 	// update boxes status
+	
+	// hiding disabled and ok boxes, leaving only ok boxes
+	// calculate actual height of container for error items only 
+	itemsToUnhide=$()
+	errorItemsCount=0
 	if (boxesStatus!=undefined && boxesStatus.length>0){
 		$("li.meter").map(function(){
 
@@ -173,20 +242,50 @@ function updateBoxRecListCallback(boxes, boxesStatus, boxRec,updateNoInteractive
 				if (this.id==boxesStatus[findStatus].id){
 					var status=boxesStatus[findStatus]
 
+					selector=$("[id='"+this.id+"']")
 					if ('error' in status){
 						statusText='error'
+						errorItemsCount+=1
 					}
 					else if ('enabled' in status && status.enabled=="False"){
 						statusText='disabled'
+						// hiding disabled and ok boxes, leaving only ok boxes
+						if (updateResizeableHeight){
+							itemsToUnhide=itemsToUnhide.add(selector)
+							selector.hide()						
+						}
 					}else{
 						statusText='ok'
+						// hiding disabled and ok boxes, leaving only ok boxes
+						if (updateResizeableHeight){
+							itemsToUnhide=itemsToUnhide.add(selector)
+							selector.hide()
+						}
 					}
-					setBoxStatus($("[id='"+this.id+"']"),statusText,status.progress,status.error)
+					setBoxStatus(selector,statusText,status.progress,status.error)
 					break
 				}
 			} 
 
 		})
+		
+		if (updateResizeableHeight){
+			$("#resizable").css("height","auto")
+			// get actual height of container (height of all error items)
+			resizeableMinimizedHeight=$("#resizable")[0].getBoundingClientRect().height
+			// set this height as constant (if at least 1 error box present)
+			if (errorItemsCount>0){
+				$("#resizable").css("height",resizeableMinimizedHeight)
+			}
+			else{
+				resizeableMinimizedHeight=undefined
+			}
+			// and return disabled and ok items to visible state
+			itemsToUnhide.show()
+
+			// reset updateResizeableHeight flag. It will be set to true at next timer loop
+			updateResizeableHeight=false
+		}
 	}
 
 	//update records for selected box
@@ -230,12 +329,22 @@ function updateBoxRecListCallback(boxes, boxesStatus, boxRec,updateNoInteractive
 
 };
 
-var progressClientTimeStamp=undefined
 
+
+
+var progressClientTimeStamp=undefined
+var lastTimerValue=0
 
 function startTimer(){
 	nowTimeStamp=parseInt(new Date().getTime()/1000)
 	timerValue=nowTimeStamp-progressClientTimeStamp
+	if (timerValue<lastTimerValue){
+		if (autoMinimizeBoxes){
+			// update height of resizeable once a timer loop
+			updateResizeableHeight=true
+		}
+	}
+	lastTimerValue=timerValue
 	timerText="Обновлено "+timerValue+" сек назад"
 	// reload page every 60 sec if not received server reply in this period
 	if (timerValue>timerPageReloadSec && timerValue%60==0){

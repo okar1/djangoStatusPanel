@@ -17,8 +17,9 @@
 <script src="{% static "shared/jquery-ui.js" %}"></script>
 <script src="{% static "shared/boxFormController.js" %}"></script>
 <script src="{% static "shared/boxFormView.js" %}"></script>
+<link rel="stylesheet" href="{{STATIC_URL}}shared/jquery-ui.css">
+<link rel="stylesheet" href="{{STATIC_URL}}shared/style.css">
 
-<!--link rel="stylesheet" href="{{STATIC_URL}}css/jquery-ui.css"-->
 
 {% endblock %}>
 
@@ -28,14 +29,14 @@
 {% block bootstrap3_content %}
 {{ block.super }}
 
-	<div style="width: 100.26%; margin-left: -0.13%; margin-right: -0.26%; margin-top: 3px; overflow: hidden;">
+	<div id="resizable">
 		<ol id="selectable" class="ui-selectable">
 			<!--li id="sel1">
 				<span><span class="text"></span><span>
 			</li-->
 		</ol>
 	</div>
-	
+	<div class="openall"><a href="#" class="btnMaximize">&#9660;</a><a href="#" class="btnMinimize">&#9650;</a></div>
 	<div id="recordlist" style="color: #ebedee; background: #2e3a6b; margin: 2px 0 3px 0; height: auto; align: justify; overflow: hidden; text-overflow: clip; padding: 0; width: 100%;"></div>
 	
 	<div class="brd">

@@ -8,6 +8,8 @@
     <!--[if IE]><meta http-equiv="X-UA-Compatible" content="IE=edge" /><![endif]-->
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block bootstrap3_title %}django-bootstrap3 template title{% endblock %}</title>
+	
+    
     {% bootstrap_css %}
     {% if 'javascript_in_head'|bootstrap_setting %}{% bootstrap_javascript jquery=True %}{% endif %}
     {% block bootstrap3_extra_head %}
@@ -32,6 +34,11 @@
 						$('.overlay').css('display','none');
 					});
 			});
+		$( function() {
+		$( "#resizable" ).resizable({
+		  containment: "#container"
+		});
+		} );
 	</script>
 	
 	<style>
@@ -42,7 +49,6 @@
 	 text-align: center;
 	 overflow: hidden;
 	 }
-	 
     #navbar li { 
 	 display: inline;
 	 font-size: 19px;
@@ -50,7 +56,6 @@
 	 text-align: center;
 	 font-family: Arial Unicode MS;
 	 }
-	 
 	#navbar li a {
 	 padding-left: 1%;
 	 padding-right: 1%;
@@ -59,21 +64,18 @@
 	 text-decoration: none;
 	 width: 20%;
 	 }
-	 
 	#navbar li a:hover {
 	 background-color: #4373a7;
 	 box-shadow:  inset 1px 1px 1px rgba(0,0,0,1);
 	 padding-top: 0.18%;
 	 padding-bottom: 0.3%;
 	 }
-	 
-	.selected{
+	.selected {
 	 background-color: #4373a7; 
 	 box-shadow:  inset 1px 1px 1px rgba(0,0,0,1);
 	 padding-top: 0.18%;
 	 padding-bottom: 0.3%;
 	 }
-	 
 	.container {
 	width: 100%; 
 	float: center;
@@ -81,12 +83,10 @@
 	overflow: hidden;
 	text-overflow: clip;
 	}
-	
 	#selectable .ui-selecting {color: #2e3a6b; font-weight:bold}
 	#selectable .ui-selected {color: #2e3a6b; font-weight:bold}
 	#selectable .ui-group {background: #c2ffe0;}
 	#selectable {list-style-type: none; margin: 0; padding: 0; width: 100%; }
-	
 	#selectable li {
 		z-index:80; 
 		cursor: pointer; 
@@ -100,17 +100,24 @@
 		/*border: 1px solid #c5c5c5;*/ 
 		background: #f6f6f6;
 	}
-	
 	#grouplist {
 		width: 280px; 
 		margin: 12px 10px 1px 15px;
 	}
-		
 	#recordlist {
 		width: 100%;
 		margin: 5px 1px;
 	}
-		
+	#resizable { 
+		min-width: 100%; 
+		height: auto; 
+		background: black; 
+		resize: vertical;
+		width: 100%; 
+		overflow: hidden; 
+		border: 1px solid;
+		border-color: #2e3a6b;
+	}
 	.legend2nothing{
 		background: #2e3a6b; 
 		float: left; 
@@ -122,11 +129,9 @@
 		margin-top: 3px; 
 		margin-right: 3px;
 	}
-	
 	.add{
 	    background: #0D6338;
 	}
-	
 	.legend2add{
 	    background: #0D6338;
 		width: 15px; 
@@ -138,11 +143,9 @@
 		margin-left: 5px;
 		margin-right: 3px;
 	}
-	
 	.rem{
     	background: #D94A4A;
 	 }
-	 
 	.legend2remove{
 	    background: #D94A4A;
 		width: 15px; 
@@ -154,11 +157,9 @@
 		margin-right: 3px;
 		float: left;
 	}
-	
 	.ign{
 	    background: #4c4c4c;
 	}
-	
 	.brd {
 		margin-top: 3px; 
 		color: #ebedee;
@@ -174,14 +175,12 @@
 		overflow: hidden;
 		padding-bottom: 2%;
 	}
-	
     .meter { 
 		height: 30px; 
 		background: #F6F6F6;
 		/*box-shadow: inset 0 -1px 1px rgba(255,255,255,0.3);*/
 		z-index:81;
 	}
-	
 	.meter > span {
 		display: block;
 		z-index: 82;
@@ -198,7 +197,6 @@
 		position: static;
 		overflow: hidden;
 	}
-	
 	.text{
 		text-align: justify;
 		overflow: hidden;
@@ -211,7 +209,6 @@
 		height: 30px;
 		white-space: nowrap;
 	}
-	
 	.standartNotice {
 		display: inline-block;
 		position: absolute;
@@ -222,12 +219,12 @@
 		font-family: Arial;
 		font-size: 100%;
 		white-space: nowrap;
-		width: 170px;
+		width: auto;
+		max-width: 200px;
 		overflow: hidden;
 		outline: none;
 		text-overflow: clip;
 	}
-	
 	.dangerousNotice {
 		display: inline-block;
 		position: absolute;
@@ -242,26 +239,23 @@
 		text-overflow: clip;
 		background-color: #D94A4A;
 		border: hidden;
-		width: 180px;
+		width: auto;
+		max-width: 200px;
 	}
-	
 	.standartNotice > span {
 		position: absolute;
 	    display: inline-block;
 	    overflow: hidden;
 		outline: none;
-		text-overflow: clip;
+		text-overflow: clip; 
 	}
-	
 	.dangerousNotice > span {
 	    position: absolute;
 	    display: inline-block;
 	    overflow: hidden;
 		outline: none;
 		text-overflow: clip;
-
 	}
-	
 	.btn {
 	 text-decoration: none;
 	 /*position: absolute;*/
@@ -277,14 +271,11 @@
 	 text-transform: uppercase;
 	 letter-spacing: 2px;
 	} 
-
 	.btn:hover { background: rgba(255,255,255,0.5); text-color: white; }
-	
 <!--раскрывающееся меню-->
 	.menu {
 		text-align: right;
 	}
-
 	.menu__icon {
 		display: block;
 		width: 25px;
@@ -292,7 +283,6 @@
 		position: absolute;
 		cursor: pointer;
 	}
-
 	.menu__icon span {
 	  display: block;
 	  position: absolute;
@@ -305,7 +295,6 @@
 	  transform: rotate(0deg);
 	  transition: .25s ease-in-out;
 	}
-
 	.menu__icon span:nth-child(1) {
 	  top: 7px;
 	}
@@ -315,7 +304,6 @@
 	.menu__icon span:nth-child(4) {
 	  top: 21px;
 	 }
-
 	.menu__links-item {
 		display: inline-block;
 		font-family: Arial;
@@ -328,13 +316,11 @@
 		min-width: 250px;
 		z-index: 100;
 	}
-
 	.menu__links-item:hover {
 		text-decoration: none;
 		font-weight: bold;
 		color: #ebedee;
 	}
-
 	.menu.menu_state_open .menu__icon span:nth-child(1) {
 	  top: 18px;
 	  width: 0%;
@@ -351,11 +337,9 @@
 	  width: 0%;
 	  left: 50%;
 	}
-
 	.menu.menu_state_open .menu__links {
 	  display: block;  
 	}
-
 	@media screen and (max-width: 99999px) {
 	  .menu__icon{
 		display: block;
@@ -388,6 +372,45 @@
 		left:0;
 		display:none; 
 		}
+<!--кнопка для сворачивания/разворачивания-->
+.openall {
+	width: 100%;
+	display: inline-block;
+	position: absolute;
+	height: 10px;
+	overflow: hidden;
+	text-overflow: clip;
+	}
+a.btnMaximize {
+	width: 100%;
+	height: 100%;
+  display: inline-block;
+  color: #ebedee;
+  font-size: 10pt;
+  font-weight: bold;
+  text-decoration: none;
+	text-align:center;
+ 	border: inherit;
+	visibility: visible;
+	overflow: hidden;
+	text-overflow: clip;
+  } 
+ a.btnMinimize {
+	width: 0;
+	height: 100%;
+  display: inline-block;
+  color: #ebedee;
+  font-size: 10pt;
+  font-weight: bold;
+  text-decoration: none;
+	text-align:center;
+ 	border: inherit;
+	visibility: hidden;
+	overflow: hidden;
+	text-overflow: clip;
+  } 
+/*a.btnMaximize:hover { background: gray;
+					opacity: 0.8;}*/
 	</style>
 	<!-- mainMenu CSS here  END -->
 	{% endblock %}
@@ -397,8 +420,8 @@
 
 <body style="background-color: black;">
 
-	<div class="container">
-		<div style="background-color: #{{ pageColor|default:"2e3a6b" }}; height: 30px; display: flex; flex-direction: row; width: 100%;">
+	<div id="container">
+		<div class="ui-widget-header" style="background-color: #{{ pageColor|default:"2e3a6b" }}; height: 30px; display: flex; flex-direction: row; width: 100%; border: none;">
 		<div style="background-color: #{{ pageColor|default:"2e3a6b" }}; width: 100%;">
 		<!-- mainMenu HTML here-->
 		<div class="menu">

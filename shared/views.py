@@ -6,6 +6,9 @@ from concurrent import futures
 from qsettings.views import MainMenuView
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.decorators.clickjacking import xframe_options_exempt
+from django.utils.decorators import method_decorator
+
 
 class BoxForm(forms.Form):
 	headString="BoxForm header"
@@ -23,6 +26,8 @@ class BoxForm(forms.Form):
 # *******************************************
 # *******************************************
 
+# xframe_options_exempt allows to embed site into iframe
+@method_decorator(xframe_options_exempt, name='dispatch')
 class BoxFormView(LoginRequiredMixin,MainMenuView):
 	template_name = 'BoxForm.html'
 	# success_url='/' 

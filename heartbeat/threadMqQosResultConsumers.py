@@ -6,14 +6,20 @@ import re
 import time
 
 timeStampFormat="%Y%m%d%H%M%S"
-matchTimeStampFormat="%Y-%m-%dT%H:%M:%S.%fZ"
+timeStampFormatZ="%Y-%m-%dT%H:%M:%S.%fZ"
 
-# resultDateTimePattern=re.compile(r'"resultDateTime"\s*:\s*"(.+?)"')
-resultDateTimePattern=re.compile(r'"resultDateTime"\s*:\s*"(\d+?)(\D*?)"')
-probeAvailablePattern=re.compile(r'"probe_availability"\s*:\s*1')
-
-timestampPattern=re.compile(r'"timestamp"\s*:\s*"(.+?)"')
 taskKeyPattern=re.compile(r'"taskKey"\s*:\s*"(.+?)"')
+
+# old time format: 20181205103803.002
+# or 20181205103803
+# or 20181205103803MSK
+resultDateTimePattern=re.compile(r'"(resultDateTime|timestamp)"\s*:\s*"(\d+)(([A-Z]|[a-z]|\.)*.*?)"')
+
+# new time format: rfc
+resultDateTimePatternZ=re.compile(r'"(resultDateTime|timestamp)"\s*:\s*"((\d|T|-|:|\.)+?Z)"')
+
+probeAvailablePattern=re.compile(r'"probe_availability"\s*:\s*1')
+lettersOnlyPattern=re.compile(r'([A-Z]|[a-z])+')
 
 # delta between local time and UTC
 localTZdelta=timedelta(seconds=time.timezone)
@@ -51,10 +57,6 @@ class MqQosResultConsumers(MqConsumers):
         # parse message payload
         try:
             mData = mData.decode('utf-8')
-            # mData = json.loads(mData.decode('utf-8'))
-            # taskKey = mData['taskKey']
-
-            # taskKey=mHeaders['taskKey']
             searchRes=taskKeyPattern.search(mData)
             if searchRes is not None:
                 taskKey=searchRes.group(1)
@@ -62,27 +64,29 @@ class MqQosResultConsumers(MqConsumers):
                 self.messages[unknownMessageKey] = {"error": "Ошибка обработки сообщения: нет информации о taskKey."}
                 return
 
-            # if taskKey=="IRKUTSK-P-1.ClipSearch.2583":
-            #     print(mData)
+            if mData.find('.SelfMonitor.availability') != -1:
+                # for .SelfMonitor.availability task ignore results
+                # if probe is unavailable
+                # i.e. "probe_availability":0 means no data for this task
+                if probeAvailablePattern.search(mData) is None:
+                    return
 
-            if msgType == 'com.tecomgroup.qos.communication.message.ResultMessage':
-                searchRes=resultDateTimePattern.search(mData)
-                if searchRes is not None:
-                    
-                    if mData.find('.SelfMonitor.availability') != -1:
-                        # for .SelfMonitor.availability task ignore results
-                        # if probe is unavailable
-                        # i.e. "probe_availability":0 means no data for this task
-                        if probeAvailablePattern.search(mData) is None:
-                            return
 
-                    timeString=searchRes.group(1)
-                    dt=datetime.strptime(timeString, timeStampFormat)
-                    
+            # parse message DateTime
+            searchTime=resultDateTimePatternZ.search(mData)
+            if searchTime is not None:
+                # new time format like RFC
+                dt=datetime.strptime(searchTime.group(2), timeStampFormatZ)
+            else:
+                # old time format
+                searchTime=resultDateTimePattern.search(mData)
+                if searchTime is not None:
+                    dt=datetime.strptime(searchTime.group(2), timeStampFormat)
+
                     # some modules (like SelfMonitor.availability) return timezone information
                     # in non-standart format like "resultDateTime":"20180515111400MSK"
-
-                    if searchRes.group(2)!='': # i.e. == 'MSK'
+                    dtSuffix=searchTime.group(3)
+                    if dtSuffix!='' and lettersOnlyPattern.search(dtSuffix) is not None  : # i.e. == 'MSK'
                         # asserting that if timezone information exitst - it is server local timezone
                         # TODO: 
                         # * check zone identifier if server timezone is non-MSK.
@@ -90,44 +94,19 @@ class MqQosResultConsumers(MqConsumers):
                         
                         # if timezone info exists - converting from server timezone to UTC
                         dt+=localTZdelta
+                else:
+                    self.messages[taskKey] = {"error": "Нет информации о времени: " + mData}
+                    return
+
+                    
+            if msgType in ['com.tecomgroup.qos.communication.message.ResultMessage',
+                           'com.tecomgroup.qos.communication.probe2server.ResultMessage',
+                           'com.tecomgroup.qos.communication.message.MatchResultMessage',
+                           'com.tecomgroup.qos.communication.message.TSStructureResultMessage']:
 
                     self.messages[taskKey] = {'timeStamp': dt}
-
-                # taskResults = mData['results']
-                # for tr in taskResults:
-                #     # if result has any parameters - store timeStamp in results
-                #     if len(tr['parameters'].keys()) > 0:
-                #         self.messages[taskKey] = \
-                #             {'timeStamp': datetime.strptime(tr['resultDateTime'], timeStampFormat)}
-
-            elif msgType ==  'com.tecomgroup.qos.communication.message.MatchResultMessage':
-                searchRes=resultDateTimePattern.search(mData)
-                if searchRes is not None:
-                    self.messages[taskKey] = \
-                        {'timeStamp': datetime.strptime(searchRes.group(1), matchTimeStampFormat)}
-
-                # print("****************")
-                # print(mData)
-                # self.messages[taskKey] = \
-                #     {'timeStamp': datetime.utcnow()}
-
-                # taskResults = mData['results']
-                # for tr in taskResults:
-                #     if len(tr['parameters'].keys()) > 0:
-                #         self.messages[taskKey] = \
-                #             {'timeStamp':datetime.utcnow()}
-
             elif msgType ==  'com.tecomgroup.qos.communication.message.TaskStatus':
                 pass
-            elif msgType == 'com.tecomgroup.qos.communication.message.TSStructureResultMessage':
-                searchRes=timestampPattern.search(mData)
-                if searchRes is not None:
-                    self.messages[taskKey] = \
-                        {'timeStamp': datetime.strptime(searchRes.group(1), timeStampFormat)}
-
-                # if len(mData['TSStructure']) > 0:
-                #     self.messages[taskKey] = \
-                #         {'timeStamp': datetime.strptime(mData['timestamp'], timeStampFormat) }
             else:
                 self.messages[taskKey] = {"error": "Неизвестный тип сообщения: " + msgType}
                 return

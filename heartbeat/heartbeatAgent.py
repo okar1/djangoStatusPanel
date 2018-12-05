@@ -962,16 +962,22 @@ def taskMediaRecorderControl(applyTo):
             try:
                 datesList = taskHtmlTableValue(url, template)
             except Exception:
-                return "http://{0}:{1}/qligentPlayer".format(
+                return "http://{0}:{1}/qligentPlayer/streams/{2}".format(
                     taskData['serviceIp'],
                     taskData['servicePort'],
                     taskId
                     )
-
         if not datesList:
             return "Ошибка при получении данных MediaRecorder (1). Проверьте службу Red5."
 
-        lastDate = datesList[len(datesList) - 1]
+
+        # lastDate = datesList[len(datesList) - 1]
+        if True:
+            # convert date to number and search for max value
+            newdatesList=[int(str(item).replace("_","")) for item in datesList]
+            lastDate=datesList[newdatesList.index(max(newdatesList))]
+
+        # print(datesList)
         url += '/' + lastDate
         template = [r"""
                 (?sx)
@@ -989,6 +995,7 @@ def taskMediaRecorderControl(applyTo):
             return "Ошибка при получении сведений о видеофайлах (1)."
         else:
             return flvSizeList[len(flvSizeList) - 1]
+
 
     # we got applyTo directly from hb task config.
     # this means, that threadPollSubs.fillApplyTo was not

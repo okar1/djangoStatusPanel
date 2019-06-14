@@ -877,7 +877,7 @@ def disableQosTasks(allServerHostEnabled,
         # check that task is placed inside existing heartbeat host, that is
         # disabled
         if hostsEnabled.get(taskData['agentName'], True) is False or \
-                taskData['module'] in ['MediaStreamer', 'RawDataRecorder']:
+                taskData['module'] in ['MediaStreamer', 'RawDataRecorder', 'Match']:
             taskData['enabled'] = False
             continue
 
